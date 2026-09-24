@@ -50,9 +50,14 @@ defmodule CompanyContactFinderWeb.BucketLive.Index do
             <div class="mb-3 h-1 w-10 rounded-full bg-gs1-orange transition-all group-hover:w-16" />
             <h2 class="text-base font-bold text-gs1-blue dark:text-white">{bucket.name}</h2>
             <p class="mt-1 line-clamp-2 text-sm text-base-content/60">{bucket.target_description}</p>
-            <p class="mt-3 inline-flex w-fit items-center gap-1 rounded-md bg-gs1-blue/5 px-2 py-1 text-xs font-medium text-gs1-blue dark:bg-white/10 dark:text-white">
-              <.icon name="hero-tag" class="size-3.5" /> {bucket.service}
-            </p>
+            <div class="mt-3 flex flex-wrap gap-1">
+              <p
+                :for={service <- bucket.services}
+                class="inline-flex w-fit items-center gap-1 rounded-md bg-gs1-blue/5 px-2 py-1 text-xs font-medium text-gs1-blue dark:bg-white/10 dark:text-white"
+              >
+                <.icon name="hero-tag" class="size-3.5" /> {service}
+              </p>
+            </div>
 
             <dl class="mt-auto grid grid-cols-3 gap-2 border-t border-base-300 pt-4 text-center">
               <div>

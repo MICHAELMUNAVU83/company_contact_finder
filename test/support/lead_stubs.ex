@@ -122,6 +122,71 @@ defmodule CompanyContactFinder.LeadStubs do
     end)
   end
 
+  @doc "Serper results pointing at an article that ranks companies, for discovery."
+  def discovery_serper_body do
+    %{
+      "organic" => [
+        %{
+          "title" => "Top 10 logistics companies in Nairobi",
+          "link" => "https://news.example.co.ke/top-logistics",
+          "snippet" => "Our ranking of Nairobi freight firms."
+        },
+        %{
+          "title" => "Swift Movers - Facebook",
+          "link" => "https://www.facebook.com/swiftmovers",
+          "snippet" => "Swift Movers Kenya"
+        }
+      ]
+    }
+  end
+
+  def discovery_pages do
+    %{
+      "/top-logistics" =>
+        "<html><body><h1>Top logistics firms</h1><ol><li>Acme Logistics Ltd</li>" <>
+          "<li>Bidii Freight</li><li>Chui Couriers</li></ol></body></html>"
+    }
+  end
+
+  def discovery_content do
+    source = "https://news.example.co.ke/top-logistics"
+
+    %{
+      "companies" => [
+        %{
+          "name" => "Bidii Freight",
+          "fit" => "strong",
+          "reason" => "Ranked Nairobi freight forwarder",
+          "source_url" => source
+        },
+        %{
+          "name" => "Chui Couriers",
+          "fit" => "possible",
+          "reason" => "Courier firm",
+          "source_url" => "https://elsewhere.example.com"
+        },
+        %{
+          "name" => "Acme Logistics",
+          "fit" => "strong",
+          "reason" => "Freight",
+          "source_url" => source
+        },
+        %{
+          "name" => "Invented Haulage",
+          "fit" => "strong",
+          "reason" => "Not in the sources",
+          "source_url" => source
+        }
+      ]
+    }
+  end
+
+  def stub_discovery do
+    stub_serper(discovery_serper_body())
+    stub_site(discovery_pages())
+    stub_openai(discovery_content())
+  end
+
   def bucket_attrs(overrides \\ %{}) do
     Map.merge(
       %{
@@ -130,7 +195,7 @@ defmodule CompanyContactFinder.LeadStubs do
         "industries" => "Logistics, Freight",
         "locations" => "Nairobi",
         "company_sizes" => ["small", "medium"],
-        "service" => "SSCC logistics labels",
+        "services" => ["SSCC logistics labels"],
         "service_details" => "Labels and training",
         "disqualifiers" => "Already GS1 members"
       },

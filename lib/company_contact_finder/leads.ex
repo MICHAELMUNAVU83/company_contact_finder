@@ -13,7 +13,7 @@ defmodule CompanyContactFinder.Leads do
   import Ecto.Query
 
   alias CompanyContactFinder.Repo
-  alias CompanyContactFinder.Leads.{Bucket, CompanyBrief, Contact, Lookup, Pipeline}
+  alias CompanyContactFinder.Leads.{Bucket, CompanyBrief, Contact, Discovery, Lookup, Pipeline}
 
   @pubsub CompanyContactFinder.PubSub
 
@@ -328,6 +328,17 @@ defmodule CompanyContactFinder.Leads do
     bucket
     |> Repo.delete()
     |> tap_ok(&Phoenix.PubSub.broadcast(@pubsub, "buckets", {:bucket_deleted, &1}))
+  end
+
+  @doc """
+  Searches online for companies that may suit the bucket, leaving out ones
+  already in it. See `CompanyContactFinder.Leads.Discovery`. Runs in the caller.
+  """
+  def discover_companies(%Bucket{id: bucket_id} = bucket) do
+    existing =
+      Repo.all(from l in Lookup, where: l.bucket_id == ^bucket_id, select: l.company_name)
+
+    Discovery.discover(bucket, exclude: existing)
   end
 
   @doc """

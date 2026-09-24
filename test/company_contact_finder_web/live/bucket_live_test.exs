@@ -1,6 +1,7 @@
 defmodule CompanyContactFinderWeb.BucketLiveTest do
   use CompanyContactFinderWeb.ConnCase, async: true
 
+  import Ecto.Query
   import Phoenix.LiveViewTest
   import CompanyContactFinder.LeadStubs
 
@@ -32,6 +33,9 @@ defmodule CompanyContactFinderWeb.BucketLiveTest do
     assert has_element?(view, "#bucket-form", "can't be blank")
 
     view |> element("button[phx-value-service='GS1 standards training']") |> render_click()
+    view |> element("button[phx-value-service='SSCC logistics labels']") |> render_click()
+    view |> element("button[phx-value-service='Traceability solutions']") |> render_click()
+    view |> element("button[phx-value-service='Traceability solutions']") |> render_click()
 
     view
     |> form("#bucket-form",
@@ -45,7 +49,7 @@ defmodule CompanyContactFinderWeb.BucketLiveTest do
     |> render_submit()
 
     bucket = Repo.one!(Bucket)
-    assert bucket.service == "GS1 standards training"
+    assert bucket.services == ["GS1 standards training", "SSCC logistics labels"]
     assert bucket.industries == ["Food", "Beverages"]
     assert bucket.company_sizes == ["small"]
     assert_redirect(view, ~p"/buckets/#{bucket}")
@@ -129,5 +133,39 @@ defmodule CompanyContactFinderWeb.BucketLiveTest do
     assert has_element?(view, "#brief-fit", "Strong fit")
     assert has_element?(view, "#brief-pitch")
     assert Repo.get!(Lookup, lookup.id).bucket_id == bucket.id
+  end
+
+  test "finding companies online and adding the picked ones", %{conn: conn} do
+    stub_discovery()
+    {:ok, bucket} = Leads.create_bucket(bucket_attrs())
+    {:ok, view, _html} = live(conn, ~p"/buckets/#{bucket}")
+
+    view |> element("#discover-companies") |> render_click()
+    assert render_async(view) =~ "Companies found online"
+    assert has_element?(view, "#discovery-form", "Bidii Freight")
+    refute has_element?(view, "#discovery-form", "Invented Haulage")
+
+    # Adding runs the normal lookup pipeline, so stub it for the picked company.
+    stub_all()
+
+    view
+    |> form("#discovery-form", pick: %{names: ["Bidii Freight"]})
+    |> render_submit()
+
+    assert [%Lookup{company_name: "Bidii Freight"} = lookup] =
+             Repo.all(from l in Lookup, where: l.bucket_id == ^bucket.id)
+
+    await_done(lookup.id)
+    refute has_element?(view, "#discovery-form", "Bidii Freight")
+    assert has_element?(view, "#discovery-form", "Chui Couriers")
+  end
+
+  test "shows why online search failed", %{conn: conn} do
+    stub_serper_error(401)
+    {:ok, bucket} = Leads.create_bucket(bucket_attrs())
+    {:ok, view, _html} = live(conn, ~p"/buckets/#{bucket}")
+
+    view |> element("#discover-companies") |> render_click()
+    assert render_async(view) =~ "Serper rejected the API key"
   end
 end

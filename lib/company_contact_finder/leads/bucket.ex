@@ -24,7 +24,7 @@ defmodule CompanyContactFinder.Leads.Bucket do
     field :industries, {:array, :string}, default: []
     field :locations, {:array, :string}, default: []
     field :company_sizes, {:array, :string}, default: []
-    field :service, :string
+    field :services, {:array, :string}, default: []
     field :service_details, :string
     field :disqualifiers, :string
     field :criteria_changed_at, :utc_datetime
@@ -47,7 +47,7 @@ defmodule CompanyContactFinder.Leads.Bucket do
     :industries,
     :locations,
     :company_sizes,
-    :service,
+    :services,
     :service_details,
     :disqualifiers
   ]
@@ -58,9 +58,10 @@ defmodule CompanyContactFinder.Leads.Bucket do
     bucket
     |> cast(attrs, [:name | @criteria])
     |> update_change(:company_sizes, &Enum.reject(&1, fn size -> size == "" end))
-    |> validate_required([:name, :target_description, :service])
+    |> validate_required([:name, :target_description])
+    |> validate_length(:services, min: 1, message: "pick at least one service")
+    |> validate_change(:services, &validate_service_lengths/2)
     |> validate_length(:name, max: 120)
-    |> validate_length(:service, max: 200)
     |> validate_length(:target_description, max: 2000)
     |> validate_length(:service_details, max: 2000)
     |> validate_length(:disqualifiers, max: 2000)
@@ -74,9 +75,15 @@ defmodule CompanyContactFinder.Leads.Bucket do
       else: changeset
   end
 
-  # Industries and locations are typed as comma-separated text in the form.
+  defp validate_service_lengths(:services, services) do
+    if Enum.any?(services, &(String.length(&1) > 200)),
+      do: [services: "each service must be at most 200 characters"],
+      else: []
+  end
+
+  # Industries, locations and services are typed as comma-separated text in the form.
   defp split_lists(attrs) do
-    Enum.reduce(["industries", "locations"], attrs, fn key, attrs ->
+    Enum.reduce(["industries", "locations", "services"], attrs, fn key, attrs ->
       case attrs do
         %{^key => value} when is_binary(value) ->
           items =

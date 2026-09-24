@@ -203,7 +203,7 @@ defmodule CompanyContactFinderWeb.LookupLive.Show do
                     >
                       <p :if={@brief.pitch} id="brief-pitch" class="text-sm">
                         <span class="font-semibold text-gs1-blue dark:text-white">
-                          How to pitch {(@bucket && @bucket.service) || "GS1 Kenya"}:
+                          How to pitch {(@bucket && Enum.join(@bucket.services, ", ")) || "GS1 Kenya"}:
                         </span>
                         {@brief.pitch}
                       </p>

@@ -14,10 +14,21 @@ defmodule CompanyContactFinder.Leads.BucketTest do
     assert Ecto.Changeset.get_change(changeset, :locations) == ["Nairobi"]
   end
 
-  test "requires name, target and service" do
+  test "requires name, target and at least one service" do
     changeset = Bucket.changeset(%Bucket{}, %{})
     refute changeset.valid?
-    assert Keyword.keys(changeset.errors) -- [:name, :target_description, :service] == []
+    assert Keyword.keys(changeset.errors) -- [:name, :target_description, :services] == []
+  end
+
+  test "splits comma-separated services" do
+    changeset =
+      Bucket.changeset(
+        %Bucket{},
+        bucket_attrs(%{"services" => "GS1 standards training, SSCC logistics labels"})
+      )
+
+    assert Ecto.Changeset.get_change(changeset, :services) ==
+             ["GS1 standards training", "SSCC logistics labels"]
   end
 
   test "rejects unknown company sizes and ignores blanks from the form" do
@@ -32,7 +43,7 @@ defmodule CompanyContactFinder.Leads.BucketTest do
       id: 1,
       name: "Old",
       target_description: "Food",
-      service: "Barcodes",
+      services: ["Barcodes"],
       criteria_changed_at: ~U[2026-01-01 00:00:00Z]
     }
 

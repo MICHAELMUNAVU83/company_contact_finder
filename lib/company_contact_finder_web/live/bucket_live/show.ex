@@ -2,6 +2,7 @@ defmodule CompanyContactFinderWeb.BucketLive.Show do
   use CompanyContactFinderWeb, :live_view
 
   alias CompanyContactFinder.Leads
+  alias CompanyContactFinder.Leads.Pipeline
 
   @impl true
   def render(assigns) do
@@ -23,11 +24,24 @@ defmodule CompanyContactFinderWeb.BucketLive.Show do
             >
               {@bucket.name}
             </h1>
-            <p class="mt-2 inline-flex items-center gap-1.5 rounded-md bg-gs1-orange/10 px-2 py-1 text-sm font-semibold text-gs1-orange-dark">
-              <.icon name="hero-tag" class="size-4" /> {@bucket.service}
-            </p>
+            <div class="mt-2 flex flex-wrap gap-1.5">
+              <p
+                :for={service <- @bucket.services}
+                class="inline-flex items-center gap-1.5 rounded-md bg-gs1-orange/10 px-2 py-1 text-sm font-semibold text-gs1-orange-dark"
+              >
+                <.icon name="hero-tag" class="size-4" /> {service}
+              </p>
+            </div>
           </div>
           <div class="flex shrink-0 flex-wrap items-center gap-2">
+            <.brand_button
+              id="discover-companies"
+              type="button"
+              phx-click="discover"
+              disabled={@discovery == :loading}
+            >
+              <.icon name="hero-sparkles" class="size-4" /> Find companies online
+            </.brand_button>
             <.brand_button variant="outline" navigate={~p"/buckets/#{@bucket}/edit"} id="edit-bucket">
               <.icon name="hero-pencil-square" class="size-4" /> Edit
             </.brand_button>
@@ -40,6 +54,8 @@ defmodule CompanyContactFinderWeb.BucketLive.Show do
             </.brand_button>
           </div>
         </div>
+
+        <.discovery_panel :if={@discovery} discovery={@discovery} />
 
         <div class="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
           <div class="space-y-6">
@@ -174,6 +190,125 @@ defmodule CompanyContactFinderWeb.BucketLive.Show do
     """
   end
 
+  attr :discovery, :any, required: true
+
+  defp discovery_panel(%{discovery: :loading} = assigns) do
+    ~H"""
+    <.card id="discovery" class="flex items-center gap-3 p-6">
+      <.icon name="hero-arrow-path" class="size-5 text-gs1-orange motion-safe:animate-spin" />
+      <div>
+        <p class="font-semibold">Searching online...</p>
+        <p class="text-sm text-base-content/60">
+          Looking for rankings, lists and directories, then reading them for company names.
+          This takes up to a minute.
+        </p>
+      </div>
+    </.card>
+    """
+  end
+
+  defp discovery_panel(%{discovery: {:error, _message}} = assigns) do
+    ~H"""
+    <.card id="discovery" class="flex items-start justify-between gap-3 p-6">
+      <div>
+        <p class="font-semibold text-red-600">Couldn't search for companies</p>
+        <p class="text-sm text-base-content/60">{elem(@discovery, 1)}</p>
+      </div>
+      <button type="button" phx-click="close_discovery" class="text-base-content/50">
+        <.icon name="hero-x-mark" class="size-5" />
+      </button>
+    </.card>
+    """
+  end
+
+  defp discovery_panel(%{discovery: {:ok, %{queries: _, suggestions: _}}} = assigns) do
+    assigns = assign(assigns, elem(assigns.discovery, 1))
+
+    ~H"""
+    <.card id="discovery" class="overflow-hidden">
+      <div class="flex items-start justify-between gap-3 border-b border-base-300 px-5 py-4">
+        <div>
+          <h2 class="text-base font-bold text-gs1-blue dark:text-white">Companies found online</h2>
+          <p class="text-xs text-base-content/50">
+            Searched: {Enum.map_join(@queries, " · ", &"“#{&1}”")}
+          </p>
+        </div>
+        <button
+          type="button"
+          phx-click="close_discovery"
+          class="text-base-content/50"
+          aria-label="Close"
+        >
+          <.icon name="hero-x-mark" class="size-5" />
+        </button>
+      </div>
+
+      <p :if={@suggestions == []} id="discovery-empty" class="px-5 py-10 text-center text-sm">
+        No new companies found. Try adding industries or locations to the bucket.
+      </p>
+
+      <.form
+        :if={@suggestions != []}
+        for={%{}}
+        as={:pick}
+        id="discovery-form"
+        phx-submit="add_suggestions"
+      >
+        <ul class="max-h-[28rem] divide-y divide-base-300 overflow-y-auto">
+          <li :for={{suggestion, index} <- Enum.with_index(@suggestions)}>
+            <label
+              for={"suggestion-#{index}"}
+              class="flex cursor-pointer items-start gap-3 px-5 py-3 transition hover:bg-gs1-blue/3"
+            >
+              <input
+                type="checkbox"
+                id={"suggestion-#{index}"}
+                name="pick[names][]"
+                value={suggestion.name}
+                class="checkbox checkbox-sm mt-0.5"
+              />
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="font-semibold">{suggestion.name}</span>
+                  <span class={[
+                    "rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                    if(suggestion.fit == "strong",
+                      do: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",
+                      else: "bg-base-200 text-base-content/60"
+                    )
+                  ]}>
+                    {if suggestion.fit == "strong", do: "Strong match", else: "Possible"}
+                  </span>
+                </div>
+                <p :if={suggestion.reason} class="text-sm text-base-content/60">
+                  {suggestion.reason}
+                </p>
+                <a
+                  :if={suggestion.source_url}
+                  href={suggestion.source_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-xs text-base-content/40 hover:text-gs1-blue hover:underline"
+                >
+                  {display_host(suggestion.source_url)}
+                </a>
+              </div>
+            </label>
+          </li>
+        </ul>
+        <div class="flex items-center justify-between gap-3 border-t border-base-300 px-5 py-3">
+          <p class="text-xs text-base-content/50">
+            {length(@suggestions)} companies. Tick the ones to find, crawl and score.
+          </p>
+          <.brand_button type="submit" id="add-suggestions" size="sm">
+            <.icon name="hero-plus" class="size-3.5" /> Add selected
+          </.brand_button>
+        </div>
+      </.form>
+    </.card>
+    """
+  end
+
   attr :label, :string, required: true
   slot :inner_block, required: true
 
@@ -200,6 +335,7 @@ defmodule CompanyContactFinderWeb.BucketLive.Show do
      |> assign(:bucket, bucket)
      |> assign(:page_title, bucket.name)
      |> assign(:add_form, to_form(%{"names" => ""}, as: :add))
+     |> assign(:discovery, nil)
      |> load_leads()}
   end
 
@@ -234,6 +370,39 @@ defmodule CompanyContactFinderWeb.BucketLive.Show do
     end
   end
 
+  def handle_event("discover", _params, socket) do
+    bucket = socket.assigns.bucket
+
+    {:noreply,
+     socket
+     |> assign(:discovery, :loading)
+     |> start_async(:discover, fn -> Leads.discover_companies(bucket) end)}
+  end
+
+  def handle_event("close_discovery", _params, socket) do
+    {:noreply, socket |> cancel_async(:discover) |> assign(:discovery, nil)}
+  end
+
+  def handle_event("add_suggestions", params, socket) do
+    names = get_in(params, ["pick", "names"]) || []
+
+    case Leads.start_bulk_lookups(Enum.join(names, "\n"), socket.assigns.bucket.id) do
+      {:ok, []} ->
+        {:noreply, put_flash(socket, :error, "Tick at least one company to add.")}
+
+      {:ok, lookups} ->
+        {:ok, result} = socket.assigns.discovery
+        added = MapSet.new(lookups, &String.downcase(&1.company_name))
+        remaining = Enum.reject(result.suggestions, &(String.downcase(&1.name) in added))
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "Finding and scoring #{length(lookups)} companies.")
+         |> assign(:discovery, {:ok, %{result | suggestions: remaining}})
+         |> load_leads()}
+    end
+  end
+
   def handle_event("rescore", _params, socket) do
     {:ok, count} = Leads.rescore_bucket(socket.assigns.bucket)
     {:noreply, put_flash(socket, :info, "Rescoring #{count} leads.")}
@@ -247,6 +416,16 @@ defmodule CompanyContactFinderWeb.BucketLive.Show do
      |> put_flash(:info, "Bucket deleted.")
      |> push_navigate(to: ~p"/buckets")}
   end
+
+  @impl true
+  def handle_async(:discover, {:ok, {:ok, result}}, socket),
+    do: {:noreply, assign(socket, :discovery, {:ok, result})}
+
+  def handle_async(:discover, {:ok, {:error, reason}}, socket),
+    do: {:noreply, assign(socket, :discovery, {:error, Pipeline.describe(reason)})}
+
+  def handle_async(:discover, {:exit, _reason}, socket),
+    do: {:noreply, assign(socket, :discovery, {:error, Pipeline.describe(:unexpected_error)})}
 
   @impl true
   def handle_info({:lookup_updated, lookup}, socket) do

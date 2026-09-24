@@ -115,7 +115,7 @@ defmodule CompanyContactFinder.AI.CompanyAnalyst do
       list_line("Target industries", bucket.industries),
       list_line("Target locations", bucket.locations),
       list_line("Target company sizes", bucket.company_sizes),
-      "Service we will offer: #{bucket.service}",
+      list_line("Services we will offer", bucket.services),
       bucket.service_details && "Service details: #{bucket.service_details}",
       bucket.disqualifiers && "Not a fit (disqualifiers): #{bucket.disqualifiers}"
     ]

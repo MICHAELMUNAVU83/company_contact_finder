@@ -98,7 +98,7 @@ defmodule CompanyContactFinder.Leads.BucketsTest do
       set: [scored_at: DateTime.add(DateTime.utc_now(:second), -60)]
     )
 
-    {:ok, _bucket} = Leads.update_bucket(bucket, %{"service" => "Traceability solutions"})
+    {:ok, _bucket} = Leads.update_bucket(bucket, %{"services" => ["Traceability solutions"]})
     lookup = Leads.get_lookup!(lookup.id)
     assert Leads.brief_stale?(lookup)
 

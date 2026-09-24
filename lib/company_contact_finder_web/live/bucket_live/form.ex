@@ -108,25 +108,22 @@ defmodule CompanyContactFinderWeb.BucketLive.Form do
             <.section_title number="3" title="What will you offer them?" />
             <div>
               <.input
-                field={@form[:service]}
+                field={@form[:services]}
+                value={join(@form[:services].value)}
                 type="text"
-                label="Service"
-                list="service-options"
-                placeholder="Pick or type a service"
+                label="Services (comma separated)"
+                placeholder="Pick one or more below, or type your own"
                 class={field_class()}
               />
-              <datalist id="service-options">
-                <option :for={service <- Bucket.services()} value={service} />
-              </datalist>
               <div class="mt-2 flex flex-wrap gap-1.5">
                 <button
                   :for={service <- Bucket.services()}
                   type="button"
-                  phx-click="pick_service"
+                  phx-click="toggle_service"
                   phx-value-service={service}
                   class={[
                     "rounded-full border px-2.5 py-1 text-xs font-medium transition",
-                    if(@form[:service].value == service,
+                    if(service in selected_services(@form),
                       do: "border-gs1-orange bg-gs1-orange text-white",
                       else:
                         "border-base-300 text-base-content/70 hover:border-gs1-orange hover:text-gs1-orange"
@@ -181,6 +178,15 @@ defmodule CompanyContactFinderWeb.BucketLive.Form do
   defp join(list) when is_list(list), do: Enum.join(list, ", ")
   defp join(value), do: value
 
+  # The services field holds a list once cast, or raw comma-separated text from the form.
+  defp selected_services(form) do
+    case form[:services].value do
+      list when is_list(list) -> list
+      text when is_binary(text) -> text |> String.split(",") |> Enum.map(&String.trim/1)
+      _ -> []
+    end
+  end
+
   @impl true
   def mount(params, _session, socket) do
     bucket =
@@ -202,8 +208,13 @@ defmodule CompanyContactFinderWeb.BucketLive.Form do
     {:noreply, assign(socket, :form, to_form(changeset, action: :validate))}
   end
 
-  def handle_event("pick_service", %{"service" => service}, socket) do
-    params = Map.put(socket.assigns.form.params, "service", service)
+  def handle_event("toggle_service", %{"service" => service}, socket) do
+    selected = selected_services(socket.assigns.form) |> Enum.reject(&(&1 == ""))
+
+    services =
+      if service in selected, do: List.delete(selected, service), else: selected ++ [service]
+
+    params = Map.put(socket.assigns.form.params, "services", services)
     changeset = Leads.change_bucket(socket.assigns.bucket, params)
     {:noreply, assign(socket, :form, to_form(changeset))}
   end
