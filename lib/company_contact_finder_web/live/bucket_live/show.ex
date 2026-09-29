@@ -26,10 +26,10 @@ defmodule CompanyContactFinderWeb.BucketLive.Show do
             </h1>
             <div class="mt-2 flex flex-wrap gap-1.5">
               <p
-                :for={service <- @bucket.services}
+                :for={product <- @bucket.products}
                 class="inline-flex items-center gap-1.5 rounded-md bg-gs1-orange/10 px-2 py-1 text-sm font-semibold text-gs1-orange-dark"
               >
-                <.icon name="hero-tag" class="size-4" /> {service}
+                <.icon name="hero-tag" class="size-4" /> {product.name}
               </p>
             </div>
           </div>

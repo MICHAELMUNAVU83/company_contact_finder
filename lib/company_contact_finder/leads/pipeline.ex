@@ -59,7 +59,7 @@ defmodule CompanyContactFinder.Leads.Pipeline do
 
   @doc "Runs (or re-runs) only the AI brief step, then marks the lookup done."
   def analyse(lookup_id) do
-    lookup = Lookup |> Repo.get!(lookup_id) |> Repo.preload(:bucket)
+    lookup = Lookup |> Repo.get!(lookup_id) |> Repo.preload(bucket: :products)
     {:ok, lookup} = Leads.update_progress(lookup, %{status: :analysing})
     contacts = Leads.list_contacts(lookup)
 

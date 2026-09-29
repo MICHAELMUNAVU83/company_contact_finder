@@ -27,7 +27,7 @@ defmodule CompanyContactFinder.Leads.DiscoveryTest do
 
   test "suggests companies named in the pages it reads, minus existing leads" do
     stub_discovery()
-    {:ok, bucket} = Leads.create_bucket(bucket_attrs())
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product())
     Repo.insert!(%Lookup{company_name: "acme logistics", bucket_id: bucket.id})
 
     assert {:ok, %{queries: [_ | _], suggestions: suggestions}} =
@@ -59,7 +59,7 @@ defmodule CompanyContactFinder.Leads.DiscoveryTest do
       })
     end)
 
-    {:ok, bucket} = Leads.create_bucket(bucket_attrs())
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product())
     assert {:ok, %{suggestions: []}} = Discovery.discover(bucket)
     assert_received {:prompt, prompt}
     assert prompt =~ "Bidii Freight"
@@ -69,7 +69,7 @@ defmodule CompanyContactFinder.Leads.DiscoveryTest do
 
   test "returns the search error when every search fails" do
     stub_serper_error(401)
-    {:ok, bucket} = Leads.create_bucket(bucket_attrs())
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product())
     assert {:error, {:serper_http_error, 401}} = Discovery.discover(bucket)
   end
 end
