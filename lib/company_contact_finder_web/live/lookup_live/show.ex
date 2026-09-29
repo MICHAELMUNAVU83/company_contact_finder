@@ -165,8 +165,8 @@ defmodule CompanyContactFinderWeb.LookupLive.Show do
                       </div>
                     </div>
 
-                    <p :if={@brief.recommended_product} id="recommended-product" class="text-sm">
-                      Pitch {@brief.recommended_product.name}.
+                    <p :if={product_name(@brief)} id="recommended-product" class="text-sm">
+                      Pitch {product_name(@brief)}.
                       <span :if={@brief.owner_email}>Copy {@brief.owner_email}.</span>
                       <span :if={@brief.product_reason}>{@brief.product_reason}</span>
                     </p>
@@ -652,6 +652,9 @@ defmodule CompanyContactFinderWeb.LookupLive.Show do
       true -> :todo
     end
   end
+
+  defp product_name(%{recommended_product: %{name: name}}) when is_binary(name), do: name
+  defp product_name(_), do: nil
 
   defp pitch_subject(nil), do: "GS1 Kenya"
 

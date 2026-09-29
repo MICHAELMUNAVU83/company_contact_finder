@@ -42,6 +42,13 @@ defmodule CompanyContactFinderWeb.BucketLive.Show do
             >
               <.icon name="hero-sparkles" class="size-4" /> Find companies online
             </.brand_button>
+            <.brand_button
+              variant="outline"
+              navigate={~p"/buckets/#{@bucket}/campaign"}
+              id="preview-campaign"
+            >
+              <.icon name="hero-envelope" class="size-4" /> Preview campaign
+            </.brand_button>
             <.brand_button variant="outline" navigate={~p"/buckets/#{@bucket}/edit"} id="edit-bucket">
               <.icon name="hero-pencil-square" class="size-4" /> Edit
             </.brand_button>

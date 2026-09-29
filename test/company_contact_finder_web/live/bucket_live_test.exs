@@ -162,6 +162,30 @@ defmodule CompanyContactFinderWeb.BucketLiveTest do
     assert has_element?(view, "#discovery-form", "Chui Couriers")
   end
 
+  test "campaign preview does not send until it is fired", %{conn: conn} do
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product())
+
+    lookup =
+      Repo.insert!(%Lookup{company_name: "Acme Logistics", bucket_id: bucket.id, status: :done})
+
+    Leads.add_contacts(lookup, [
+      %{type: :email, value: "sales@acmelogistics.co.ke", source_url: "https://acme.test"}
+    ])
+
+    Leads.save_brief(lookup, %{status: :done, pitch: "Offer barcode numbers"})
+
+    {:ok, view, _html} = live(conn, ~p"/buckets/#{bucket}/campaign")
+    assert has_element?(view, "#preview-#{lookup.id}", "Acme Logistics")
+    assert has_element?(view, "#preview-#{lookup.id}", "sales@acmelogistics.co.ke")
+    assert has_element?(view, "#campaign-count", "1 ready")
+    assert Repo.aggregate(CompanyContactFinder.Outreach.Message, :count) == 0
+
+    view |> element("#fire-campaign") |> render_click()
+    assert render(view) =~ "Campaign fired. Sent 1."
+    assert render(view) =~ "Already sent"
+    assert Repo.aggregate(CompanyContactFinder.Outreach.Message, :count) == 1
+  end
+
   test "shows why online search failed", %{conn: conn} do
     stub_serper_error(401)
     {:ok, bucket} = Leads.create_bucket(bucket_with_product())
