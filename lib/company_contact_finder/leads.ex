@@ -79,7 +79,7 @@ defmodule CompanyContactFinder.Leads do
     |> Repo.get!(id)
     |> Repo.preload(
       bucket: :products,
-      brief: [],
+      brief: :recommended_product,
       contacts: from(c in Contact, order_by: [c.type, c.id])
     )
   end

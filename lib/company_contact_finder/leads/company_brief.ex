@@ -6,6 +6,8 @@ defmodule CompanyContactFinder.Leads.CompanyBrief do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias CompanyContactFinder.Catalog.Product
+
   @statuses [:pending, :done, :failed]
   @sizes ~w(small medium large unknown)
   @fits ~w(strong partial weak unknown)
@@ -26,7 +28,11 @@ defmodule CompanyContactFinder.Leads.CompanyBrief do
     field :fit, :string
     field :fit_reason, :string
     field :pitch, :string
+    field :product_reason, :string
+    field :owner_email, :string
     field :scored_bucket_id, :integer
+
+    belongs_to :recommended_product, Product
     field :scored_at, :utc_datetime
     field :raw_response, :map
     field :model, :string
@@ -54,6 +60,9 @@ defmodule CompanyContactFinder.Leads.CompanyBrief do
     :fit,
     :fit_reason,
     :pitch,
+    :recommended_product_id,
+    :product_reason,
+    :owner_email,
     :scored_bucket_id,
     :scored_at,
     :raw_response,
