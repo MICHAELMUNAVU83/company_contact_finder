@@ -39,7 +39,19 @@ defmodule CompanyContactFinder.Leads.BucketsTest do
       send(test_pid, {:prompt, body})
 
       Req.Test.json(conn, %{
-        "choices" => [%{"message" => %{"content" => Jason.encode!(brief_content())}}]
+        "choices" => [
+          %{
+            "message" => %{
+              "content" =>
+                Jason.encode!(
+                  brief_content(%{
+                    "recommended_product" => "GS1 barcodes",
+                    "product_reason" => "They move physical freight"
+                  })
+                )
+            }
+          }
+        ]
       })
     end)
 
@@ -57,6 +69,8 @@ defmodule CompanyContactFinder.Leads.BucketsTest do
     assert brief.fit == "strong"
     assert brief.pitch =~ "GTINs"
     assert brief.scored_bucket_id == bucket.id
+    assert brief.owner_email == "barcodes-owner@example.com"
+    assert brief.product_reason == "They move physical freight"
   end
 
   test "list_buckets/0 includes lead counts, strong fits and average score" do

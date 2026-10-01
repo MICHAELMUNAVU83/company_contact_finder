@@ -165,6 +165,12 @@ defmodule CompanyContactFinderWeb.LookupLive.Show do
                       </div>
                     </div>
 
+                    <p :if={@brief.recommended_product} id="recommended-product" class="text-sm">
+                      Pitch {@brief.recommended_product.name}.
+                      <span :if={@brief.owner_email}>Copy {@brief.owner_email}.</span>
+                      <span :if={@brief.product_reason}>{@brief.product_reason}</span>
+                    </p>
+
                     <p :if={@brief.summary} class="leading-relaxed">{@brief.summary}</p>
 
                     <dl class="grid gap-4 sm:grid-cols-2">
