@@ -8,14 +8,16 @@ defmodule CompanyContactFinder.Leads.Discovery do
   Suggestions aren't saved; the user picks which to add to the bucket.
   """
 
-  alias CompanyContactFinder.AI.CompanyFinder
+  alias CompanyContactFinder.AI.{CompanyFinder, QueryPlanner}
   alias CompanyContactFinder.Leads.Bucket
   alias CompanyContactFinder.Scraper.{Crawler, Extractor, UrlGuard}
   alias CompanyContactFinder.Search
   alias CompanyContactFinder.Search.Serper
 
-  @max_queries 4
-  @max_pages 8
+  @narrow_queries 4
+  @wide_queries 12
+  @narrow_pages 8
+  @wide_pages 12
 
   # Sites that need a login or aren't text, so their pages can't be read.
   @unreadable_domains ~w(
@@ -32,9 +34,13 @@ defmodule CompanyContactFinder.Leads.Discovery do
     exclude = opts |> Keyword.get(:exclude, []) |> MapSet.new(&String.downcase/1)
 
     with {:ok, results} <- search_all(queries),
-         sources when sources != [] <- read_sources(results),
+         sources when sources != [] <- read_sources(results, page_cap(bucket)),
          {:ok, suggestions} <- CompanyFinder.find(bucket, sources) do
-      suggestions = Enum.reject(suggestions, &(String.downcase(&1.name) in exclude))
+      suggestions =
+        suggestions
+        |> Enum.reject(&(String.downcase(&1.name) in exclude))
+        |> Enum.take(bucket.max_companies || 25)
+
       {:ok, %{queries: queries, suggestions: suggestions}}
     else
       [] -> {:ok, %{queries: queries, suggestions: []}}
@@ -42,8 +48,17 @@ defmodule CompanyContactFinder.Leads.Discovery do
     end
   end
 
-  @doc "Search queries for the bucket's industries and first location."
-  def queries(%Bucket{} = bucket) do
+  @doc "Search queries for the bucket. Wide buckets ask the model, up to 12."
+  def queries(%Bucket{breadth: "wide"} = bucket) do
+    case QueryPlanner.plan(bucket) do
+      {:ok, planned} when planned != [] -> Enum.take(planned, @wide_queries)
+      _ -> narrow_queries(bucket)
+    end
+  end
+
+  def queries(%Bucket{} = bucket), do: narrow_queries(bucket)
+
+  defp narrow_queries(%Bucket{} = bucket) do
     location = location(bucket)
 
     topics =
@@ -58,8 +73,11 @@ defmodule CompanyContactFinder.Leads.Discovery do
     end)
     |> Enum.map(&String.trim/1)
     |> Enum.uniq()
-    |> Enum.take(@max_queries)
+    |> Enum.take(@narrow_queries)
   end
+
+  defp page_cap(%Bucket{breadth: "wide"}), do: @wide_pages
+  defp page_cap(%Bucket{}), do: @narrow_pages
 
   defp location(bucket) do
     country = Search.country_name()
@@ -116,15 +134,15 @@ defmodule CompanyContactFinder.Leads.Discovery do
   end
 
   # Each result's page text, falling back to its search snippet if the page can't be read.
-  defp read_sources(results) do
+  defp read_sources(results, page_cap) do
     results
-    |> Enum.take(@max_pages)
+    |> Enum.take(page_cap)
     |> Task.async_stream(&read_source/1,
       max_concurrency: 4,
       timeout: 30_000,
       on_timeout: :kill_task
     )
-    |> Enum.zip(Enum.take(results, @max_pages))
+    |> Enum.zip(Enum.take(results, page_cap))
     |> Enum.flat_map(fn
       {{:ok, source}, _result} -> [source]
       {{:exit, _}, result} -> [snippet_source(result)]

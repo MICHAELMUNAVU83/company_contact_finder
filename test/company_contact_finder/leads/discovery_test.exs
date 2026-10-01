@@ -67,6 +67,37 @@ defmodule CompanyContactFinder.Leads.DiscoveryTest do
     refute prompt =~ "facebook.com"
   end
 
+  test "wide search uses the planned queries and stops at max companies" do
+    queries = for n <- 1..15, do: "logistics companies list #{n}"
+
+    Req.Test.stub(CompanyContactFinder.AI.OpenAI, fn conn ->
+      {:ok, raw, conn} = Plug.Conn.read_body(conn)
+      name = raw |> Jason.decode!() |> get_in(["response_format", "json_schema", "name"])
+
+      content =
+        if name == "search_queries" do
+          %{"queries" => queries}
+        else
+          discovery_content()
+        end
+
+      Req.Test.json(conn, %{
+        "choices" => [%{"message" => %{"content" => Jason.encode!(content)}}]
+      })
+    end)
+
+    stub_serper(discovery_serper_body())
+    stub_site(discovery_pages())
+
+    {:ok, bucket} =
+      Leads.create_bucket(bucket_with_product(%{"breadth" => "wide", "max_companies" => "1"}))
+
+    assert {:ok, %{queries: used, suggestions: suggestions}} = Discovery.discover(bucket)
+    assert length(used) == 12
+    assert length(suggestions) == 1
+    assert hd(suggestions).name == "Bidii Freight"
+  end
+
   test "returns the search error when every search fails" do
     stub_serper_error(401)
     {:ok, bucket} = Leads.create_bucket(bucket_with_product())
