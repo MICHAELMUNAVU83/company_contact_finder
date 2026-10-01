@@ -10,6 +10,7 @@ defmodule CompanyContactFinder.Leads.Bucket do
 
   @sizes ~w(small medium large)
   @breadths ~w(narrow wide)
+  @flows ~w(acquire upsell)
   @email_modes ~w(static dynamic)
 
   schema "buckets" do
@@ -22,6 +23,7 @@ defmodule CompanyContactFinder.Leads.Bucket do
     field :service_details, :string
     field :disqualifiers, :string
     field :breadth, :string, default: "narrow"
+    field :flow, :string, default: "acquire"
     field :max_companies, :integer, default: 200
     field :email_mode, :string, default: "static"
     field :email_subject, :string
@@ -42,6 +44,7 @@ defmodule CompanyContactFinder.Leads.Bucket do
 
   def sizes, do: @sizes
   def breadths, do: @breadths
+  def flows, do: @flows
   def email_modes, do: @email_modes
 
   @campaign [:email_mode, :email_subject, :email_template, :email_prompt]
@@ -64,7 +67,8 @@ defmodule CompanyContactFinder.Leads.Bucket do
     :services,
     :service_details,
     :disqualifiers,
-    :product_ids
+    :product_ids,
+    :flow
   ]
 
   def changeset(bucket, attrs) do
@@ -77,6 +81,7 @@ defmodule CompanyContactFinder.Leads.Bucket do
     |> validate_required([:name, :target_description])
     |> validate_products()
     |> validate_inclusion(:breadth, @breadths)
+    |> validate_inclusion(:flow, @flows)
     |> validate_number(:max_companies, greater_than: 0, less_than_or_equal_to: 500)
     |> validate_length(:name, max: 120)
     |> validate_length(:target_description, max: 2000)

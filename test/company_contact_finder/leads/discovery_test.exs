@@ -3,6 +3,7 @@ defmodule CompanyContactFinder.Leads.DiscoveryTest do
 
   import CompanyContactFinder.LeadStubs
 
+  alias CompanyContactFinder.Clients
   alias CompanyContactFinder.Leads
   alias CompanyContactFinder.Leads.{Bucket, Discovery, Lookup}
 
@@ -96,6 +97,17 @@ defmodule CompanyContactFinder.Leads.DiscoveryTest do
     assert length(used) == 24
     assert length(suggestions) == 1
     assert hd(suggestions).name == "Bidii Freight"
+  end
+
+  test "fresh acquire leaves out uploaded clients" do
+    stub_discovery()
+    assert %{inserted: 1} = Clients.import_csv("company\nChui Couriers\n")
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product())
+
+    assert {:ok, %{suggestions: suggestions}} = Leads.discover_companies(bucket)
+    names = Enum.map(suggestions, & &1.name)
+    assert "Bidii Freight" in names
+    refute "Chui Couriers" in names
   end
 
   test "returns the search error when every search fails" do

@@ -26,6 +26,8 @@ defmodule CompanyContactFinderWeb.Router do
     live "/buckets/:id/edit", BucketLive.Form, :edit
     live "/buckets/:id/campaign", BucketLive.Campaign, :show
 
+    live "/clients", ClientLive.Index, :index
+
     live "/products", ProductLive.Index, :index
     live "/products/new", ProductLive.Form, :new
     live "/products/:id/edit", ProductLive.Form, :edit

@@ -37,6 +37,16 @@ defmodule CompanyContactFinderWeb.BucketLive.Form do
               placeholder="e.g. Nairobi food manufacturers"
               class={field_class()}
             />
+            <.input
+              field={@form[:flow]}
+              type="select"
+              label="Flow"
+              options={[{"Fresh acquire", "acquire"}, {"Upsell existing clients", "upsell"}]}
+            />
+            <p class="-mt-2 text-xs text-base-content/50">
+              Fresh acquire searches the public web and skips companies on your client list.
+              Upsell scores the companies you upload on the Clients page.
+            </p>
           </.card>
 
           <.card class="space-y-5 p-6">

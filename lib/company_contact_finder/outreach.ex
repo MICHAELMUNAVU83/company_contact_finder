@@ -133,6 +133,7 @@ defmodule CompanyContactFinder.Outreach do
         Why this product: #{lookup.brief && lookup.brief.product_reason}
         Pitch: #{lookup.brief && lookup.brief.pitch}
         Angle: #{lookup.brief && lookup.brief.outreach_angle}
+        #{if bucket.flow == "upsell", do: "Relationship: already a GS1 Kenya client. Offer the product as an addition."}
         """
       }
     ]

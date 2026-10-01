@@ -47,7 +47,12 @@ defmodule CompanyContactFinderWeb.BucketLive.Index do
             navigate={~p"/buckets/#{bucket}"}
             class="group flex flex-col rounded-2xl border border-base-300 bg-base-100 p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-gs1-blue/30 hover:shadow-md"
           >
-            <div class="mb-3 h-1 w-10 rounded-full bg-gs1-orange transition-all group-hover:w-16" />
+            <div class="mb-3 flex items-center justify-between gap-2">
+              <div class="h-1 w-10 rounded-full bg-gs1-orange transition-all group-hover:w-16" />
+              <span class="rounded-md bg-base-200 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-base-content/60">
+                {flow_label(bucket.flow)}
+              </span>
+            </div>
             <h2 class="text-base font-bold text-gs1-blue dark:text-white">{bucket.name}</h2>
             <p class="mt-1 line-clamp-2 text-sm text-base-content/60">{bucket.target_description}</p>
             <div class="mt-3 flex flex-wrap gap-1">
@@ -81,6 +86,9 @@ defmodule CompanyContactFinderWeb.BucketLive.Index do
     </Layouts.app>
     """
   end
+
+  defp flow_label("upsell"), do: "Upsell"
+  defp flow_label(_), do: "Fresh acquire"
 
   @impl true
   def mount(_params, _session, socket) do

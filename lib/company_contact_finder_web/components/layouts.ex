@@ -31,7 +31,7 @@ defmodule CompanyContactFinderWeb.Layouts do
     default: nil,
     doc: "the current [scope](https://phoenix.hexdocs.pm/scopes.html)"
 
-  attr :active, :atom, default: nil, values: [nil, :leads, :buckets, :products]
+  attr :active, :atom, default: nil, values: [nil, :leads, :buckets, :clients, :products]
 
   slot :inner_block, required: true
 
@@ -61,6 +61,10 @@ defmodule CompanyContactFinderWeb.Layouts do
             <.nav_link navigate={~p"/buckets"} active={@active == :buckets} id="nav-buckets">
               <.icon name="hero-rectangle-stack" class="size-4" />
               <span class="hidden sm:inline">Lead buckets</span>
+            </.nav_link>
+            <.nav_link navigate={~p"/clients"} active={@active == :clients} id="nav-clients">
+              <.icon name="hero-building-office-2" class="size-4" />
+              <span class="hidden sm:inline">Clients</span>
             </.nav_link>
             <.nav_link navigate={~p"/products"} active={@active == :products} id="nav-products">
               <.icon name="hero-tag" class="size-4" />

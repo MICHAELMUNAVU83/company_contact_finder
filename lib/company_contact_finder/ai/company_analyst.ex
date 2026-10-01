@@ -121,7 +121,9 @@ defmodule CompanyContactFinder.AI.CompanyAnalyst do
       list_line("Target company sizes", bucket.company_sizes),
       product_lines(bucket),
       bucket.service_details && "Service details: #{bucket.service_details}",
-      bucket.disqualifiers && "Not a fit (disqualifiers): #{bucket.disqualifiers}"
+      bucket.disqualifiers && "Not a fit (disqualifiers): #{bucket.disqualifiers}",
+      bucket.flow == "upsell" &&
+        "Relationship: this company is already a GS1 Kenya client. Score the additional product in this bucket."
     ]
 
     Enum.reject(lines, &is_nil/1) |> Enum.join("\n") |> Kernel.<>("\n")

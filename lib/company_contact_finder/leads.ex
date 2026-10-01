@@ -13,6 +13,8 @@ defmodule CompanyContactFinder.Leads do
   import Ecto.Query
 
   alias CompanyContactFinder.Catalog.Product
+  alias CompanyContactFinder.Clients
+  alias CompanyContactFinder.Clients.Client
   alias CompanyContactFinder.Repo
   alias CompanyContactFinder.Leads.{Bucket, CompanyBrief, Contact, Discovery, Lookup, Pipeline}
 
@@ -184,6 +186,105 @@ defmodule CompanyContactFinder.Leads do
     end)
 
     {:ok, lookups}
+  end
+
+  @max_client_lookups 500
+
+  @doc """
+  Starts lookups for uploaded clients, using the website and contacts from
+  the client list when they were provided.
+  """
+  def start_client_lookups(%Bucket{} = bucket, client_ids) when is_list(client_ids) do
+    ids =
+      client_ids
+      |> Enum.flat_map(&parse_id/1)
+      |> Enum.uniq()
+      |> Enum.take(@max_client_lookups)
+
+    existing = bucket_name_keys(bucket.id)
+
+    lookups =
+      ids
+      |> Clients.list_clients_by_ids()
+      |> Enum.reject(&(&1.name_key in existing))
+      |> Enum.flat_map(&insert_client_lookup(bucket, &1))
+
+    run_lookups(lookups)
+    {:ok, lookups}
+  end
+
+  @doc "Starts lookups for every uploaded client not already in the bucket."
+  def start_all_client_lookups(%Bucket{} = bucket) do
+    start_client_lookups(bucket, Clients.available_ids(bucket.id, @max_client_lookups))
+  end
+
+  defp parse_id(id) when is_integer(id), do: [id]
+
+  defp parse_id(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {int, ""} -> [int]
+      _ -> []
+    end
+  end
+
+  defp parse_id(_), do: []
+
+  defp bucket_name_keys(bucket_id) do
+    Repo.all(from l in Lookup, where: l.bucket_id == ^bucket_id, select: l.company_name)
+    |> MapSet.new(&Client.name_key/1)
+  end
+
+  defp insert_client_lookup(bucket, %Client{} = client) do
+    case create_lookup(%{"company_name" => client.company_name, "bucket_id" => bucket.id}) do
+      {:ok, lookup} ->
+        lookup = apply_client_website(lookup, client.website_url)
+        contacts = client_contacts(client)
+        if contacts != [], do: add_contacts(lookup, contacts)
+        [lookup]
+
+      {:error, _} ->
+        []
+    end
+  end
+
+  defp apply_client_website(lookup, url) when is_binary(url) and url != "" do
+    case lookup |> Lookup.website_changeset(%{"website_url" => url}) |> Repo.update() do
+      {:ok, lookup} -> lookup
+      {:error, _} -> lookup
+    end
+  end
+
+  defp apply_client_website(lookup, _), do: lookup
+
+  defp client_contacts(client) do
+    []
+    |> add_client_contact(:email, client.email)
+    |> add_client_contact(:phone, client.phone)
+  end
+
+  defp add_client_contact(contacts, _type, value) when value in [nil, ""], do: contacts
+
+  defp add_client_contact(contacts, type, value) do
+    contacts ++ [%{type: type, value: value, source_url: "Uploaded client list"}]
+  end
+
+  defp run_lookups([]), do: :ok
+
+  defp run_lookups(lookups) do
+    ids = Enum.map(lookups, & &1.id)
+
+    max_concurrency =
+      Application.get_env(:company_contact_finder, :lookups, [])[:max_concurrency] || 3
+
+    run_async(fn ->
+      ids
+      |> Task.async_stream(&Pipeline.run/1,
+        max_concurrency: max_concurrency,
+        timeout: :infinity,
+        ordered: false
+      )
+      |> Stream.run()
+    end)
   end
 
   @doc "Re-runs the pipeline, using the user's website instead of searching."
@@ -373,11 +474,13 @@ defmodule CompanyContactFinder.Leads do
   Searches online for companies that may suit the bucket, leaving out ones
   already in it. See `CompanyContactFinder.Leads.Discovery`. Runs in the caller.
   """
+  def discover_companies(%Bucket{flow: "upsell"}), do: {:ok, %{queries: [], suggestions: []}}
+
   def discover_companies(%Bucket{id: bucket_id} = bucket) do
     existing =
       Repo.all(from l in Lookup, where: l.bucket_id == ^bucket_id, select: l.company_name)
 
-    Discovery.discover(bucket, exclude: existing)
+    Discovery.discover(bucket, exclude: existing ++ Clients.company_names())
   end
 
   @doc """
