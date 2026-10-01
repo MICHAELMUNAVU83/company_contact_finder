@@ -38,8 +38,10 @@ defmodule CompanyContactFinder.AI.CompanyAnalyst do
       retailers or exports, and shows no sign of already having it), 20% how
       reachable it is (quality of the contacts found).
     - fit_reason explains the fit and score in 1-2 sentences, citing the site.
-    - pitch is 1-2 sentences on how to offer the bucket's product to this
-      company specifically.
+    - pitch is two sentences a first email can use. The first cites one fact
+      from the site about what the company sells or who it sells to. The
+      second names the product and one of its proof points. No greeting and
+      no sign-off.
     - recommended_product is the exact name of one product in the bucket, or
       "unknown" if none fits. product_reason is one sentence citing the site.
   - If no bucket is given: fit is "unknown", lead_score is 0-100 for how

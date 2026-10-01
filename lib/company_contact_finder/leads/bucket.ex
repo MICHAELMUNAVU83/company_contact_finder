@@ -22,7 +22,7 @@ defmodule CompanyContactFinder.Leads.Bucket do
     field :service_details, :string
     field :disqualifiers, :string
     field :breadth, :string, default: "narrow"
-    field :max_companies, :integer, default: 25
+    field :max_companies, :integer, default: 200
     field :email_mode, :string, default: "static"
     field :email_subject, :string
     field :email_template, :string
@@ -77,7 +77,7 @@ defmodule CompanyContactFinder.Leads.Bucket do
     |> validate_required([:name, :target_description])
     |> validate_products()
     |> validate_inclusion(:breadth, @breadths)
-    |> validate_number(:max_companies, greater_than: 0, less_than_or_equal_to: 200)
+    |> validate_number(:max_companies, greater_than: 0, less_than_or_equal_to: 500)
     |> validate_length(:name, max: 120)
     |> validate_length(:target_description, max: 2000)
     |> validate_length(:service_details, max: 2000)

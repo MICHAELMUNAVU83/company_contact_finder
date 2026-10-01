@@ -35,6 +35,18 @@ defmodule CompanyContactFinder.Leads.BucketTest do
     assert Ecto.Changeset.get_change(changeset, :max_companies) == 40
   end
 
+  test "allows a run past 200 companies and rejects more than 500" do
+    assert Bucket.changeset(
+             %Bucket{},
+             bucket_attrs(%{"product_ids" => ["1"], "max_companies" => "250"})
+           ).valid?
+
+    refute Bucket.changeset(
+             %Bucket{},
+             bucket_attrs(%{"product_ids" => ["1"], "max_companies" => "501"})
+           ).valid?
+  end
+
   test "splits comma-separated services" do
     changeset =
       Bucket.changeset(
