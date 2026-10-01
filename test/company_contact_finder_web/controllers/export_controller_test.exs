@@ -1,6 +1,8 @@
 defmodule CompanyContactFinderWeb.ExportControllerTest do
   use CompanyContactFinderWeb.ConnCase, async: true
 
+  import CompanyContactFinder.LeadStubs
+
   alias CompanyContactFinder.Leads
   alias CompanyContactFinder.Leads.Lookup
   alias CompanyContactFinder.Repo
@@ -32,11 +34,9 @@ defmodule CompanyContactFinderWeb.ExportControllerTest do
 
   test "exports a bucket's leads", %{conn: conn, lookup: lookup} do
     {:ok, bucket} =
-      Leads.create_bucket(%{
-        name: "Food makers",
-        target_description: "Food",
-        services: ["Barcodes"]
-      })
+      Leads.create_bucket(
+        bucket_with_product(%{"name" => "Food makers", "target_description" => "Food"})
+      )
 
     {:ok, _} = Leads.assign_bucket(lookup, bucket.id)
     conn = get(conn, ~p"/buckets/#{bucket}/export.csv")

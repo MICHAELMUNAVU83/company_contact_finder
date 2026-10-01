@@ -187,6 +187,17 @@ defmodule CompanyContactFinder.LeadStubs do
     stub_openai(discovery_content())
   end
 
+  def bucket_with_product(overrides \\ %{}) do
+    CompanyContactFinder.Catalog.seed_products()
+
+    id =
+      CompanyContactFinder.Catalog.list_products()
+      |> Enum.find(&(&1.name == "GS1 barcodes"))
+      |> Map.fetch!(:id)
+
+    bucket_attrs(Map.merge(%{"product_ids" => [to_string(id)]}, overrides))
+  end
+
   def bucket_attrs(overrides \\ %{}) do
     Map.merge(
       %{

@@ -35,6 +35,9 @@ config :company_contact_finder, :scraper,
   resolve_dns_guard: false,
   req_options: [plug: {Req.Test, CompanyContactFinder.Scraper.Crawler}, retry: false]
 
+# Run lookup jobs in the test process so HTTP stubs are visible.
+config :company_contact_finder, :sync_pipeline, true
+
 # In test we don't send emails
 config :company_contact_finder, CompanyContactFinder.Mailer, adapter: Swoosh.Adapters.Test
 

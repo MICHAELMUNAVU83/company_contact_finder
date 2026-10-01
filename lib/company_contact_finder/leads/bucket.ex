@@ -1,22 +1,15 @@
 defmodule CompanyContactFinder.Leads.Bucket do
   @moduledoc """
-  A lead bucket: the kind of companies we're looking for and the GS1 Kenya
-  service we want to offer them. Lookups in a bucket are scored against it.
+  A lead bucket: the kind of companies we're looking for and the catalog
+  products we will offer them. Lookups in a bucket are scored against it.
   """
   use Ecto.Schema
   import Ecto.Changeset
 
-  @sizes ~w(small medium large)
+  alias CompanyContactFinder.Catalog.Product
 
-  @services [
-    "GS1 barcodes (GTINs) for products",
-    "Global Location Numbers (GLNs)",
-    "SSCC logistics labels",
-    "Traceability solutions",
-    "Barcode verification & quality testing",
-    "GS1 standards training",
-    "Product data management"
-  ]
+  @sizes ~w(small medium large)
+  @breadths ~w(narrow wide)
 
   schema "buckets" do
     field :name, :string
@@ -27,19 +20,23 @@ defmodule CompanyContactFinder.Leads.Bucket do
     field :services, {:array, :string}, default: []
     field :service_details, :string
     field :disqualifiers, :string
+    field :breadth, :string, default: "narrow"
+    field :max_companies, :integer, default: 25
     field :criteria_changed_at, :utc_datetime
+    field :product_ids, {:array, :integer}, virtual: true, default: []
 
     field :lead_count, :integer, virtual: true
     field :strong_count, :integer, virtual: true
     field :avg_score, :float, virtual: true
 
+    many_to_many :products, Product, join_through: "bucket_products", on_replace: :delete
     has_many :lookups, CompanyContactFinder.Leads.Lookup
 
     timestamps(type: :utc_datetime)
   end
 
   def sizes, do: @sizes
-  def services, do: @services
+  def breadths, do: @breadths
 
   # Changing any of these makes existing scores out of date.
   @criteria [
@@ -49,18 +46,21 @@ defmodule CompanyContactFinder.Leads.Bucket do
     :company_sizes,
     :services,
     :service_details,
-    :disqualifiers
+    :disqualifiers,
+    :product_ids
   ]
 
   def changeset(bucket, attrs) do
     attrs = split_lists(attrs)
 
     bucket
-    |> cast(attrs, [:name | @criteria])
+    |> cast(attrs, [:name, :breadth, :max_companies, :product_ids | @criteria])
     |> update_change(:company_sizes, &Enum.reject(&1, fn size -> size == "" end))
+    |> update_change(:product_ids, &normalize_ids/1)
     |> validate_required([:name, :target_description])
-    |> validate_length(:services, min: 1, message: "pick at least one service")
-    |> validate_change(:services, &validate_service_lengths/2)
+    |> validate_products()
+    |> validate_inclusion(:breadth, @breadths)
+    |> validate_number(:max_companies, greater_than: 0, less_than_or_equal_to: 200)
     |> validate_length(:name, max: 120)
     |> validate_length(:target_description, max: 2000)
     |> validate_length(:service_details, max: 2000)
@@ -69,16 +69,46 @@ defmodule CompanyContactFinder.Leads.Bucket do
     |> touch_criteria()
   end
 
+  defp normalize_ids(nil), do: []
+
+  defp normalize_ids(ids) do
+    ids
+    |> Enum.map(fn
+      id when is_integer(id) ->
+        id
+
+      id when is_binary(id) ->
+        case Integer.parse(id) do
+          {int, ""} -> int
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp validate_products(changeset) do
+    ids = get_change(changeset, :product_ids)
+
+    cond do
+      changeset.data.id && is_nil(ids) ->
+        changeset
+
+      ids in [nil, []] ->
+        add_error(changeset, :product_ids, "pick at least one product")
+
+      true ->
+        changeset
+    end
+  end
+
   defp touch_criteria(changeset) do
     if Enum.any?(@criteria, &Map.has_key?(changeset.changes, &1)) or is_nil(changeset.data.id),
       do: put_change(changeset, :criteria_changed_at, DateTime.utc_now(:second)),
       else: changeset
-  end
-
-  defp validate_service_lengths(:services, services) do
-    if Enum.any?(services, &(String.length(&1) > 200)),
-      do: [services: "each service must be at most 200 characters"],
-      else: []
   end
 
   # Industries, locations and services are typed as comma-separated text in the form.

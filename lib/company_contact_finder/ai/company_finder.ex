@@ -85,7 +85,7 @@ defmodule CompanyContactFinder.AI.CompanyFinder do
       list_line("Target industries", bucket.industries),
       list_line("Target locations", bucket.locations),
       list_line("Target company sizes", bucket.company_sizes),
-      list_line("Services we will offer", bucket.services),
+      product_lines(bucket),
       bucket.disqualifiers && "Not a fit (disqualifiers): #{bucket.disqualifiers}"
     ]
     |> Enum.reject(&is_nil/1)
@@ -94,6 +94,15 @@ defmodule CompanyContactFinder.AI.CompanyFinder do
 
   defp list_line(_label, []), do: nil
   defp list_line(label, items), do: "#{label}: #{Enum.join(items, ", ")}"
+
+  defp product_lines(%Bucket{products: products}) when is_list(products) and products != [] do
+    Enum.map_join(products, "\n", fn product ->
+      "Product: #{product.name}. For: #{product.audience}."
+    end)
+  end
+
+  defp product_lines(%Bucket{} = bucket),
+    do: list_line("Services we will offer", bucket.services)
 
   defp to_suggestions(content, sources) do
     source_urls = MapSet.new(sources, & &1.url)

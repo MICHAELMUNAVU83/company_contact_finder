@@ -12,6 +12,7 @@ defmodule CompanyContactFinder.Leads do
 
   import Ecto.Query
 
+  alias CompanyContactFinder.Catalog.Product
   alias CompanyContactFinder.Repo
   alias CompanyContactFinder.Leads.{Bucket, CompanyBrief, Contact, Discovery, Lookup, Pipeline}
 
@@ -76,7 +77,11 @@ defmodule CompanyContactFinder.Leads do
   def get_lookup!(id) do
     Lookup
     |> Repo.get!(id)
-    |> Repo.preload([:bucket, brief: [], contacts: from(c in Contact, order_by: [c.type, c.id])])
+    |> Repo.preload(
+      bucket: :products,
+      brief: [],
+      contacts: from(c in Contact, order_by: [c.type, c.id])
+    )
   end
 
   @doc "Reloads a lookup with its brief and contact count, as used by the index."
@@ -250,7 +255,12 @@ defmodule CompanyContactFinder.Leads do
   end
 
   defp run_async(fun) do
-    {:ok, _pid} = Task.Supervisor.start_child(CompanyContactFinder.TaskSupervisor, fun)
+    if Application.get_env(:company_contact_finder, :sync_pipeline, false) do
+      fun.()
+      {:ok, self()}
+    else
+      {:ok, _pid} = Task.Supervisor.start_child(CompanyContactFinder.TaskSupervisor, fun)
+    end
   end
 
   defp create_lookup(attrs) do
@@ -293,6 +303,7 @@ defmodule CompanyContactFinder.Leads do
           avg_score: type(avg(b.lead_score), :float)
         }
     )
+    |> Repo.preload(:products)
   end
 
   @doc "Bucket id/name pairs for select inputs."
@@ -300,14 +311,23 @@ defmodule CompanyContactFinder.Leads do
     Repo.all(from bk in Bucket, order_by: bk.name, select: {bk.name, bk.id})
   end
 
-  def get_bucket!(id), do: Repo.get!(Bucket, id)
+  def get_bucket!(id), do: Bucket |> Repo.get!(id) |> Repo.preload(:products)
 
-  def change_bucket(%Bucket{} = bucket \\ %Bucket{}, attrs \\ %{}),
-    do: Bucket.changeset(bucket, attrs)
+  def change_bucket(%Bucket{} = bucket \\ %Bucket{}, attrs \\ %{}) do
+    attrs =
+      if bucket.id && attrs == %{} do
+        Map.put(attrs, "product_ids", Enum.map(bucket.products || [], & &1.id))
+      else
+        attrs
+      end
+
+    Bucket.changeset(bucket, attrs)
+  end
 
   def create_bucket(attrs) do
     %Bucket{}
     |> Bucket.changeset(attrs)
+    |> put_products()
     |> Repo.insert()
     |> tap_ok(&Phoenix.PubSub.broadcast(@pubsub, "buckets", {:bucket_updated, &1}))
   end
@@ -318,9 +338,22 @@ defmodule CompanyContactFinder.Leads do
   """
   def update_bucket(%Bucket{} = bucket, attrs) do
     bucket
+    |> Repo.preload(:products)
     |> Bucket.changeset(attrs)
+    |> put_products()
     |> Repo.update()
     |> tap_ok(&Phoenix.PubSub.broadcast(@pubsub, "buckets", {:bucket_updated, &1}))
+  end
+
+  defp put_products(changeset) do
+    case Ecto.Changeset.get_change(changeset, :product_ids) do
+      nil ->
+        changeset
+
+      ids ->
+        products = Repo.all(from p in Product, where: p.id in ^ids, order_by: p.name)
+        Ecto.Changeset.put_assoc(changeset, :products, products)
+    end
   end
 
   @doc "Deletes a bucket. Its lookups are kept, without a bucket."
@@ -358,13 +391,17 @@ defmodule CompanyContactFinder.Leads do
 
     if ids != [] do
       run_async(fn ->
-        ids
-        |> Task.async_stream(&Pipeline.analyse/1,
-          max_concurrency: max_concurrency,
-          timeout: :infinity,
-          ordered: false
-        )
-        |> Stream.run()
+        if Application.get_env(:company_contact_finder, :sync_pipeline, false) do
+          Enum.each(ids, &Pipeline.analyse/1)
+        else
+          ids
+          |> Task.async_stream(&Pipeline.analyse/1,
+            max_concurrency: max_concurrency,
+            timeout: :infinity,
+            ordered: false
+          )
+          |> Stream.run()
+        end
       end)
     end
 

@@ -115,7 +115,7 @@ defmodule CompanyContactFinder.AI.CompanyAnalyst do
       list_line("Target industries", bucket.industries),
       list_line("Target locations", bucket.locations),
       list_line("Target company sizes", bucket.company_sizes),
-      list_line("Services we will offer", bucket.services),
+      product_lines(bucket),
       bucket.service_details && "Service details: #{bucket.service_details}",
       bucket.disqualifiers && "Not a fit (disqualifiers): #{bucket.disqualifiers}"
     ]
@@ -125,6 +125,15 @@ defmodule CompanyContactFinder.AI.CompanyAnalyst do
 
   defp list_line(_label, []), do: nil
   defp list_line(label, items), do: "#{label}: #{Enum.join(items, ", ")}"
+
+  defp product_lines(%Bucket{products: products}) when is_list(products) and products != [] do
+    Enum.map_join(products, "\n", fn product ->
+      "Product: #{product.name}. For: #{product.audience}. Not for: #{product.not_for}. Proof: #{Enum.join(product.proof_points, "; ")}."
+    end)
+  end
+
+  defp product_lines(%Bucket{} = bucket),
+    do: list_line("Services we will offer", bucket.services)
 
   defp to_attrs(%{content: content} = result, contacts) do
     known_values = MapSet.new(contacts, & &1.value)
