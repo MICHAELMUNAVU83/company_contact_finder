@@ -10,6 +10,7 @@ defmodule CompanyContactFinder.Leads.Bucket do
 
   @sizes ~w(small medium large)
   @breadths ~w(narrow wide)
+  @email_modes ~w(static dynamic)
 
   schema "buckets" do
     field :name, :string
@@ -22,6 +23,10 @@ defmodule CompanyContactFinder.Leads.Bucket do
     field :disqualifiers, :string
     field :breadth, :string, default: "narrow"
     field :max_companies, :integer, default: 25
+    field :email_mode, :string, default: "static"
+    field :email_subject, :string
+    field :email_template, :string
+    field :email_prompt, :string
     field :criteria_changed_at, :utc_datetime
     field :product_ids, {:array, :integer}, virtual: true, default: []
 
@@ -37,6 +42,18 @@ defmodule CompanyContactFinder.Leads.Bucket do
 
   def sizes, do: @sizes
   def breadths, do: @breadths
+  def email_modes, do: @email_modes
+
+  @campaign [:email_mode, :email_subject, :email_template, :email_prompt]
+
+  def campaign_changeset(bucket, attrs) do
+    bucket
+    |> cast(attrs, @campaign)
+    |> validate_inclusion(:email_mode, @email_modes)
+    |> validate_length(:email_subject, max: 200)
+    |> validate_length(:email_template, max: 8000)
+    |> validate_length(:email_prompt, max: 4000)
+  end
 
   # Changing any of these makes existing scores out of date.
   @criteria [

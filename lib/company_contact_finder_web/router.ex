@@ -24,6 +24,7 @@ defmodule CompanyContactFinderWeb.Router do
     live "/buckets/new", BucketLive.Form, :new
     live "/buckets/:id", BucketLive.Show, :show
     live "/buckets/:id/edit", BucketLive.Form, :edit
+    live "/buckets/:id/campaign", BucketLive.Campaign, :show
 
     get "/export.csv", ExportController, :index
     get "/lookups/:id/export.csv", ExportController, :show

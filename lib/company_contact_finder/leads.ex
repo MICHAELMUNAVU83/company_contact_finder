@@ -336,6 +336,12 @@ defmodule CompanyContactFinder.Leads do
   Updates a bucket's criteria. Existing briefs keep their scores until the
   bucket is rescored (see `rescore_bucket/1`).
   """
+  def update_campaign(%Bucket{} = bucket, attrs) do
+    bucket
+    |> Bucket.campaign_changeset(attrs)
+    |> Repo.update()
+  end
+
   def update_bucket(%Bucket{} = bucket, attrs) do
     bucket
     |> Repo.preload(:products)
