@@ -37,6 +37,16 @@ defmodule CompanyContactFinderWeb.BucketLive.Form do
               placeholder="e.g. Nairobi food manufacturers"
               class={field_class()}
             />
+            <.input
+              field={@form[:flow]}
+              type="select"
+              label="Flow"
+              options={[{"Fresh acquire", "acquire"}, {"Upsell existing clients", "upsell"}]}
+            />
+            <p class="-mt-2 text-xs text-base-content/50">
+              Fresh acquire searches the public web and skips companies on your client list.
+              Upsell scores the companies you upload on the Clients page.
+            </p>
           </.card>
 
           <.card class="space-y-5 p-6">
@@ -127,6 +137,14 @@ defmodule CompanyContactFinderWeb.BucketLive.Form do
               <p :for={{message, _} <- @form[:product_ids].errors} class="mt-1 text-sm text-red-600">
                 {message}
               </p>
+              <p class="mt-2 text-xs text-base-content/50">
+                <.link
+                  navigate={~p"/products"}
+                  class="font-medium text-gs1-blue hover:underline dark:text-white"
+                >
+                  Manage products
+                </.link>
+              </p>
             </fieldset>
             <div class="grid gap-4 sm:grid-cols-2">
               <.input
@@ -140,9 +158,13 @@ defmodule CompanyContactFinderWeb.BucketLive.Form do
                 type="number"
                 label="Max companies"
                 min="1"
-                max="200"
+                max="500"
               />
             </div>
+            <p class="text-xs text-base-content/50">
+              Set breadth to Wide and this to 200 or more for a full run.
+              Each company you add is still crawled and scored on its own.
+            </p>
             <.input
               field={@form[:service_details]}
               type="textarea"

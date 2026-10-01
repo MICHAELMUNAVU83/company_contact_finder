@@ -12,7 +12,7 @@ defmodule CompanyContactFinder.AI.QueryPlanner do
   news articles naming companies that match a lead bucket.
 
   Rules:
-  - Return at most 12 queries.
+  - Return at most 24 queries.
   - Each query is a search string, not a company name.
   - Use the bucket's industries, locations and target description.
   - Prefer queries like "top {industry} companies in {place}" and
@@ -38,7 +38,7 @@ defmodule CompanyContactFinder.AI.QueryPlanner do
         |> Enum.map(&String.trim/1)
         |> Enum.reject(&(&1 == ""))
         |> Enum.uniq()
-        |> Enum.take(12)
+        |> Enum.take(24)
 
       {:ok, queries}
     end

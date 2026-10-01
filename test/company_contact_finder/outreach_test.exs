@@ -35,8 +35,9 @@ defmodule CompanyContactFinder.OutreachTest do
 
     assert draft.to == "sales@acmelogistics.co.ke"
     assert draft.subject == "GS1 barcodes for Acme Logistics"
-    assert draft.body =~ "Acme Logistics looks like a fit for GS1 barcodes"
     assert draft.body =~ "Offer barcode numbers"
+    assert draft.body =~ "If that applies to Acme Logistics"
+    refute draft.body =~ "The contact we found"
     refute draft.sent?
     assert Outreach.preview(bucket, [lookup])
     refute_email_sent()

@@ -17,18 +17,16 @@ defmodule CompanyContactFinder.Outreach do
 
   @default_subject "{{product}} for {{company}}"
   @default_template """
-  Hello,
-
-  {{company}} looks like a fit for {{product}}.
+  Hi,
 
   {{pitch}}
 
-  The contact we found is {{contact}}.
+  If that applies to {{company}}, reply and I will send how {{product}} is usually set up, and who it is not for.
   """
 
   @doc "Done leads in the bucket, best score first, with contacts loaded."
   def campaign_leads(%Bucket{id: id}) do
-    [bucket_id: id, sort: :score, limit: 100]
+    [bucket_id: id, sort: :score, limit: 500]
     |> Leads.list_lookups()
     |> Enum.filter(&(&1.status == :done))
     |> Repo.preload([:contacts, brief: :recommended_product])
@@ -106,11 +104,21 @@ defmodule CompanyContactFinder.Outreach do
       %{
         role: "system",
         content: """
-        Write one plain-text sales email. Use only the facts you are given.
-        Do not invent prices, people, or offers. Return a subject and a body.
-        The user's instructions follow.
+        Write one plain-text first email from GS1 Kenya. Use only the facts
+        in the user message. Do not invent prices, customers, meetings,
+        statistics, or personal details. Return a subject and a body.
 
-        #{bucket.email_prompt || "Write a short first email."}
+        Shape:
+        - Subject: under 8 words. Name the company or what it sells.
+        - Body: 70 to 110 words.
+        - First sentence: one fact about what they sell or who they sell to.
+        - Next: why the product fits that fact, using one proof point when one is given.
+        - Last: one reply ask, offering how the product is set up. Do not ask for a call.
+        - Greeting is "Hi" only. Do not mention that an address was found or researched.
+        - Leave out any fact you were not given.
+
+        Extra instructions from the sender:
+        #{bucket.email_prompt || "Keep it specific to this company."}
         """
       },
       %{
@@ -118,10 +126,14 @@ defmodule CompanyContactFinder.Outreach do
         content: """
         Company: #{lookup.company_name}
         Product: #{product && product.name}
-        Contact: #{base.to}
-        Brief: #{lookup.brief && lookup.brief.summary}
+        Who it is for: #{product && product.audience}
+        Who it is not for: #{product && product.not_for}
+        Proof points: #{product && product.proof_points && Enum.join(product.proof_points, "; ")}
+        What they do: #{lookup.brief && lookup.brief.summary}
+        Why this product: #{lookup.brief && lookup.brief.product_reason}
         Pitch: #{lookup.brief && lookup.brief.pitch}
         Angle: #{lookup.brief && lookup.brief.outreach_angle}
+        #{if bucket.flow == "upsell", do: "Relationship: already a GS1 Kenya client. Offer the product as an addition."}
         """
       }
     ]

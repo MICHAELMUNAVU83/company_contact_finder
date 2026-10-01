@@ -15,9 +15,14 @@ defmodule CompanyContactFinder.Leads.Discovery do
   alias CompanyContactFinder.Search.Serper
 
   @narrow_queries 4
-  @wide_queries 12
+  @wide_queries 24
   @narrow_pages 8
-  @wide_pages 12
+  # About eight named companies per list page, with a floor so a small wide
+  # run still reads several sources and a ceiling so one run stays bounded.
+  @companies_per_page 8
+  @wide_pages_floor 16
+  @wide_pages_ceiling 48
+  @finder_batch 4
 
   # Sites that need a login or aren't text, so their pages can't be read.
   @unreadable_domains ~w(
@@ -33,13 +38,13 @@ defmodule CompanyContactFinder.Leads.Discovery do
     queries = queries(bucket)
     exclude = opts |> Keyword.get(:exclude, []) |> MapSet.new(&String.downcase/1)
 
-    with {:ok, results} <- search_all(queries),
+    with {:ok, results} <- search_all(queries, bucket),
          sources when sources != [] <- read_sources(results, page_cap(bucket)),
-         {:ok, suggestions} <- CompanyFinder.find(bucket, sources) do
+         {:ok, suggestions} <- find_in_batches(bucket, sources) do
       suggestions =
         suggestions
         |> Enum.reject(&(String.downcase(&1.name) in exclude))
-        |> Enum.take(bucket.max_companies || 25)
+        |> Enum.take(bucket.max_companies || 200)
 
       {:ok, %{queries: queries, suggestions: suggestions}}
     else
@@ -48,7 +53,7 @@ defmodule CompanyContactFinder.Leads.Discovery do
     end
   end
 
-  @doc "Search queries for the bucket. Wide buckets ask the model, up to 12."
+  @doc "Search queries for the bucket. Wide buckets ask the model, up to 24."
   def queries(%Bucket{breadth: "wide"} = bucket) do
     case QueryPlanner.plan(bucket) do
       {:ok, planned} when planned != [] -> Enum.take(planned, @wide_queries)
@@ -76,8 +81,47 @@ defmodule CompanyContactFinder.Leads.Discovery do
     |> Enum.take(@narrow_queries)
   end
 
-  defp page_cap(%Bucket{breadth: "wide"}), do: @wide_pages
+  defp page_cap(%Bucket{breadth: "wide"} = bucket) do
+    wanted = bucket.max_companies || 200
+
+    wanted
+    |> div(@companies_per_page)
+    |> max(@wide_pages_floor)
+    |> min(@wide_pages_ceiling)
+  end
+
   defp page_cap(%Bucket{}), do: @narrow_pages
+
+  # One model call will not reliably list 200 companies. Each batch reads a
+  # few pages; the lists are merged and deduped afterwards.
+  defp find_in_batches(bucket, sources) do
+    results =
+      sources
+      |> Enum.chunk_every(@finder_batch)
+      |> Task.async_stream(&CompanyFinder.find(bucket, &1),
+        max_concurrency: 3,
+        timeout: 60_000,
+        on_timeout: :kill_task
+      )
+      |> Enum.map(fn
+        {:ok, result} -> result
+        {:exit, reason} -> {:error, reason}
+      end)
+
+    case Enum.filter(results, &match?({:ok, _}, &1)) do
+      [] ->
+        List.first(results, {:error, :no_sources})
+
+      ok ->
+        suggestions =
+          ok
+          |> Enum.flat_map(fn {:ok, found} -> found end)
+          |> Enum.uniq_by(&String.downcase(&1.name))
+          |> Enum.sort_by(&(&1.fit != "strong"))
+
+        {:ok, suggestions}
+    end
+  end
 
   defp location(bucket) do
     country = Search.country_name()
@@ -94,8 +138,9 @@ defmodule CompanyContactFinder.Leads.Discovery do
   end
 
   # Organic results for every query, best-ranked first. Fails only if every search fails.
-  defp search_all(queries) do
-    responses = Enum.map(queries, &Serper.search/1)
+  defp search_all(queries, bucket) do
+    num = if bucket.breadth == "wide", do: 20, else: 10
+    responses = Enum.map(queries, &Serper.search(&1, num: num))
 
     case Enum.filter(responses, &match?({:ok, _}, &1)) do
       [] ->

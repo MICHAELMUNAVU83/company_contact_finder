@@ -5,6 +5,7 @@ defmodule CompanyContactFinderWeb.BucketLiveTest do
   import Phoenix.LiveViewTest
   import CompanyContactFinder.LeadStubs
 
+  alias CompanyContactFinder.Clients
   alias CompanyContactFinder.Leads
   alias CompanyContactFinder.Leads.{Bucket, Lookup}
   alias CompanyContactFinder.Repo
@@ -108,6 +109,36 @@ defmodule CompanyContactFinderWeb.BucketLiveTest do
     assert added.bucket_id == bucket.id
     await_done(added.id)
     assert has_element?(view, "#leads-#{added.id}")
+  end
+
+  test "an upsell bucket scores uploaded clients", %{conn: conn} do
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product(%{"flow" => "upsell"}))
+
+    assert %{inserted: 1} =
+             Clients.import_csv(
+               "company,email,website\nBidii Foods,hello@bidii.co.ke,https://bidii.co.ke\n"
+             )
+
+    {:ok, view, _html} = live(conn, ~p"/buckets/#{bucket}")
+    refute has_element?(view, "#discover-companies")
+    assert has_element?(view, "#client-picker", "Bidii Foods")
+
+    stub_all()
+    [client] = Clients.list_clients()
+
+    view
+    |> form("#client-picker", pick: %{ids: [client.id]})
+    |> render_submit()
+
+    lookup = Repo.get_by!(Lookup, company_name: "Bidii Foods")
+    assert lookup.bucket_id == bucket.id
+    assert lookup.website_overridden
+    assert lookup.website_url =~ "bidii.co.ke"
+    await_done(lookup.id)
+
+    emails = for %{type: :email, value: value} <- Leads.list_contacts(lookup), do: value
+    assert "hello@bidii.co.ke" in emails
+    refute has_element?(view, "#client-picker", "Bidii Foods")
   end
 
   test "deleting a bucket", %{conn: conn} do

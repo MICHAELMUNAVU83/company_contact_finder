@@ -71,7 +71,7 @@ defmodule CompanyContactFinderWeb.BucketLive.Campaign do
               type="textarea"
               rows="6"
               label="Prompt"
-              placeholder="Write a short first email. Mention what they sell. Do not invent prices."
+              placeholder="Keep the first sentence about what they sell. Use one proof point. Ask for a reply, not a call."
             />
           </.card>
         </.form>

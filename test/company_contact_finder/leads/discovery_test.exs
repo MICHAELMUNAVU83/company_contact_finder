@@ -3,6 +3,7 @@ defmodule CompanyContactFinder.Leads.DiscoveryTest do
 
   import CompanyContactFinder.LeadStubs
 
+  alias CompanyContactFinder.Clients
   alias CompanyContactFinder.Leads
   alias CompanyContactFinder.Leads.{Bucket, Discovery, Lookup}
 
@@ -68,7 +69,7 @@ defmodule CompanyContactFinder.Leads.DiscoveryTest do
   end
 
   test "wide search uses the planned queries and stops at max companies" do
-    queries = for n <- 1..15, do: "logistics companies list #{n}"
+    queries = for n <- 1..30, do: "logistics companies list #{n}"
 
     Req.Test.stub(CompanyContactFinder.AI.OpenAI, fn conn ->
       {:ok, raw, conn} = Plug.Conn.read_body(conn)
@@ -93,9 +94,20 @@ defmodule CompanyContactFinder.Leads.DiscoveryTest do
       Leads.create_bucket(bucket_with_product(%{"breadth" => "wide", "max_companies" => "1"}))
 
     assert {:ok, %{queries: used, suggestions: suggestions}} = Discovery.discover(bucket)
-    assert length(used) == 12
+    assert length(used) == 24
     assert length(suggestions) == 1
     assert hd(suggestions).name == "Bidii Freight"
+  end
+
+  test "fresh acquire leaves out uploaded clients" do
+    stub_discovery()
+    assert %{inserted: 1} = Clients.import_csv("company\nChui Couriers\n")
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product())
+
+    assert {:ok, %{suggestions: suggestions}} = Leads.discover_companies(bucket)
+    names = Enum.map(suggestions, & &1.name)
+    assert "Bidii Freight" in names
+    refute "Chui Couriers" in names
   end
 
   test "returns the search error when every search fails" do
