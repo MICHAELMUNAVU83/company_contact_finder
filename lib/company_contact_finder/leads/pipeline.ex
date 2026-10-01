@@ -18,6 +18,7 @@ defmodule CompanyContactFinder.Leads.Pipeline do
   alias CompanyContactFinder.Leads.Lookup
   alias CompanyContactFinder.Repo
   alias CompanyContactFinder.Scraper.{Crawler, Extractor}
+  alias CompanyContactFinder.Scraper.UrlGuard
   alias CompanyContactFinder.Search
   alias CompanyContactFinder.Search.{Serper, WebsiteResolver}
 
@@ -27,10 +28,24 @@ defmodule CompanyContactFinder.Leads.Pipeline do
   def run(lookup_id) do
     lookup = Repo.get!(Lookup, lookup_id)
 
-    with {:ok, lookup} <- resolve_website(lookup),
-         {:ok, lookup} <- crawl(lookup) do
-      analyse(lookup.id)
-    else
+    result =
+      with {:ok, lookup} <- resolve_website(lookup),
+           {:ok, lookup} <- crawl(lookup),
+           {:ok, lookup} <- ensure_contact_page(lookup) do
+        {:ok, lookup}
+      else
+        {:error, :no_website} ->
+          case ensure_contact_page(Repo.get!(Lookup, lookup_id), required: true) do
+            {:ok, lookup} -> {:ok, lookup}
+            {:error, reason} -> {:error, reason}
+          end
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+
+    case result do
+      {:ok, lookup} -> analyse(lookup.id)
       {:error, reason} -> fail(lookup_id, reason)
     end
   rescue
@@ -143,6 +158,87 @@ defmodule CompanyContactFinder.Leads.Pipeline do
       })
     end
   end
+
+  # One extra search and one extra page when the crawl found no email, or when
+  # no website was found at all. A miss here does not start another retry.
+  defp ensure_contact_page(lookup, opts \\ []) do
+    required? = Keyword.get(opts, :required, false)
+
+    cond do
+      has_email?(lookup) ->
+        {:ok, lookup}
+
+      true ->
+        fetch_one_contact_page(lookup, required?)
+    end
+  end
+
+  defp has_email?(lookup) do
+    Enum.any?(Leads.list_contacts(lookup), &(&1.type == :email))
+  end
+
+  defp fetch_one_contact_page(lookup, required?) do
+    query = "#{lookup.company_name} contact email"
+
+    with {:ok, body} <- Serper.search(query),
+         url when is_binary(url) <- contact_page_url(lookup, body),
+         {:ok, [page | _]} <- Crawler.crawl_page(url) do
+      listing? = WebsiteResolver.blocked_host?(URI.parse(page.url).host)
+
+      %{contacts: contacts, text: text, title: title} =
+        Extractor.extract(page.html, page.url, listing: listing?)
+
+      Leads.add_contacts(lookup, contacts)
+
+      scraped =
+        [lookup.scraped_text, "## #{title || page.url} (#{page.url})\n#{text}"]
+        |> Enum.reject(&is_nil/1)
+        |> Enum.join("\n\n")
+        |> String.slice(0, @max_scraped_chars)
+
+      Leads.update_progress(lookup, %{
+        website_url: lookup.website_url || page.url,
+        source: lookup.source || if(listing?, do: :listing, else: :website),
+        pages_crawled: (lookup.pages_crawled || 0) + 1,
+        scraped_text: scraped,
+        status: :crawling
+      })
+    else
+      _ when required? -> {:error, :no_website}
+      _ -> {:ok, lookup}
+    end
+  end
+
+  defp contact_page_url(lookup, body) do
+    body
+    |> Map.get("organic", [])
+    |> Enum.find_value(fn item ->
+      link = item["link"]
+
+      with true <- is_binary(link),
+           {:ok, %URI{scheme: scheme, host: host}} <- UrlGuard.parse(link),
+           true <- scheme in ["http", "https"],
+           false <- same_page?(lookup.website_url, link),
+           false <- WebsiteResolver.blocked_host?(host) do
+        link
+      else
+        _ -> nil
+      end
+    end)
+  end
+
+  defp same_page?(nil, _), do: false
+
+  defp same_page?(left, right) do
+    left = URI.parse(left)
+    right = URI.parse(right)
+
+    left.host == right.host and normalize_path(left.path) == normalize_path(right.path)
+  end
+
+  defp normalize_path(nil), do: "/"
+  defp normalize_path("/"), do: "/"
+  defp normalize_path(path), do: String.trim_trailing(path, "/")
 
   defp fail(lookup_id, reason) do
     lookup = Repo.get!(Lookup, lookup_id)
