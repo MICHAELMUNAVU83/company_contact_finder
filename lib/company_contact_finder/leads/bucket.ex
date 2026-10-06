@@ -29,6 +29,9 @@ defmodule CompanyContactFinder.Leads.Bucket do
     field :email_subject, :string
     field :email_template, :string
     field :email_prompt, :string
+    field :email_footer, :string
+    field :from_name, :string
+    field :from_email, :string
     field :criteria_changed_at, :utc_datetime
     field :product_ids, {:array, :integer}, virtual: true, default: []
 
@@ -47,16 +50,59 @@ defmodule CompanyContactFinder.Leads.Bucket do
   def flows, do: @flows
   def email_modes, do: @email_modes
 
-  @campaign [:email_mode, :email_subject, :email_template, :email_prompt]
+  @campaign [
+    :email_mode,
+    :email_subject,
+    :email_template,
+    :email_prompt,
+    :email_footer,
+    :from_name,
+    :from_email
+  ]
 
   def campaign_changeset(bucket, attrs) do
     bucket
     |> cast(attrs, @campaign)
+    |> update_change(:from_name, &trim/1)
+    |> update_change(:from_email, &normalize_email/1)
+    |> update_change(:email_footer, &trim/1)
     |> validate_inclusion(:email_mode, @email_modes)
     |> validate_length(:email_subject, max: 200)
     |> validate_length(:email_template, max: 8000)
     |> validate_length(:email_prompt, max: 4000)
+    |> validate_length(:email_footer, max: 8000)
+    |> validate_length(:from_name, max: 120)
+    |> validate_from_email()
+    |> validate_from_pair()
   end
+
+  defp validate_from_email(changeset) do
+    if blank?(get_field(changeset, :from_email)) do
+      changeset
+    else
+      validate_format(changeset, :from_email, ~r/^[^\s]+@[^\s]+$/, message: "must be an email")
+    end
+  end
+
+  defp validate_from_pair(changeset) do
+    name_blank? = blank?(get_field(changeset, :from_name))
+    email_blank? = blank?(get_field(changeset, :from_email))
+
+    cond do
+      name_blank? and email_blank? -> changeset
+      name_blank? -> add_error(changeset, :from_name, "can't be blank")
+      email_blank? -> add_error(changeset, :from_email, "can't be blank")
+      true -> changeset
+    end
+  end
+
+  defp trim(nil), do: nil
+  defp trim(value), do: String.trim(value)
+
+  defp normalize_email(nil), do: nil
+  defp normalize_email(email), do: email |> String.trim() |> String.downcase()
+
+  defp blank?(value), do: value in [nil, ""]
 
   # Changing any of these makes existing scores out of date.
   @criteria [

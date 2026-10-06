@@ -209,7 +209,21 @@ defmodule CompanyContactFinderWeb.BucketLiveTest do
     assert has_element?(view, "#preview-#{lookup.id}", "Acme Logistics")
     assert has_element?(view, "#preview-#{lookup.id}", "sales@acmelogistics.co.ke")
     assert has_element?(view, "#campaign-count", "1 ready")
+    assert has_element?(view, "#bucket_email_footer")
+    assert has_element?(view, "#footer-tokens", "{{company}}")
     assert Repo.aggregate(CompanyContactFinder.Outreach.Message, :count) == 0
+
+    view
+    |> form("#campaign-form",
+      bucket: %{
+        from_name: "Amina",
+        from_email: "amina@gs1kenya.org",
+        email_footer: "Amina, GS1 Kenya"
+      }
+    )
+    |> render_change()
+
+    assert has_element?(view, "#preview-#{lookup.id}", "Amina, GS1 Kenya")
 
     view |> element("#fire-campaign") |> render_click()
     assert render(view) =~ "Campaign fired. Sent 1."

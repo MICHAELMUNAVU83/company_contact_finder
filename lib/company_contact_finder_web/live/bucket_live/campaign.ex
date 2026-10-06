@@ -73,6 +73,18 @@ defmodule CompanyContactFinderWeb.BucketLive.Campaign do
               label="Prompt"
               placeholder="Keep the first sentence about what they sell. Use one proof point. Ask for a reply, not a call."
             />
+            <.input field={@form[:from_name]} type="text" label="From name" />
+            <.input field={@form[:from_email]} type="email" label="From email" />
+            <.input
+              field={@form[:email_footer]}
+              type="textarea"
+              rows="5"
+              label="Footer"
+              placeholder="Amina, GS1 Kenya"
+            />
+            <p id="footer-tokens" class="text-sm text-base-content/60" phx-no-curly-interpolation>
+              Use {{company}}, {{product}}, {{contact}}, and {{pitch}}.
+            </p>
           </.card>
         </.form>
 

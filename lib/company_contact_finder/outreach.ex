@@ -83,20 +83,23 @@ defmodule CompanyContactFinder.Outreach do
       error: if(blank?(to), do: "No email address on this lead")
     }
 
-    cond do
-      base.error ->
-        base
-
-      bucket.email_mode == "dynamic" ->
-        dynamic(bucket, lookup, product, base)
-
-      true ->
-        %{
+    draft =
+      cond do
+        base.error ->
           base
-          | subject: fill(present(bucket.email_subject) || @default_subject, fields),
-            body: fill(present(bucket.email_template) || @default_template, fields)
-        }
-    end
+
+        bucket.email_mode == "dynamic" ->
+          dynamic(bucket, lookup, product, base)
+
+        true ->
+          %{
+            base
+            | subject: fill(present(bucket.email_subject) || @default_subject, fields),
+              body: fill(present(bucket.email_template) || @default_template, fields)
+          }
+      end
+
+    with_signoff(draft, bucket, fields)
   end
 
   defp dynamic(bucket, lookup, product, base) do
@@ -152,9 +155,9 @@ defmodule CompanyContactFinder.Outreach do
     email =
       Email.new()
       |> Email.to(preview.to)
-      |> Email.from(from_address())
+      |> Email.from(sender(bucket))
       |> Email.subject(preview.subject)
-      |> Email.text_body(preview.body <> opt_out())
+      |> Email.text_body(preview.body)
 
     email =
       if blank?(preview.cc) or preview.cc == preview.to,
@@ -217,6 +220,26 @@ defmodule CompanyContactFinder.Outreach do
 
   defp blank?(value), do: value in [nil, ""]
   defp present(value), do: if(blank?(value), do: nil, else: value)
+
+  defp with_signoff(%{error: error} = draft, _bucket, _fields) when not is_nil(error), do: draft
+
+  defp with_signoff(%{body: body} = draft, bucket, fields) when is_binary(body) do
+    %{draft | body: signoff(body, bucket, fields)}
+  end
+
+  defp signoff(body, bucket, fields) do
+    body =
+      case present(bucket.email_footer) do
+        nil -> body
+        footer -> body <> "\n\n" <> fill(footer, fields)
+      end
+
+    body <> opt_out()
+  end
+
+  defp sender(%Bucket{from_name: name, from_email: email}) do
+    if blank?(name) or blank?(email), do: from_address(), else: {name, email}
+  end
 
   defp from_address do
     Application.get_env(:company_contact_finder, :outreach, [])
