@@ -3,6 +3,7 @@ defmodule CompanyContactFinder.Leads.DiscoveryTest do
 
   import CompanyContactFinder.LeadStubs
 
+  alias CompanyContactFinder.Clients
   alias CompanyContactFinder.Leads
   alias CompanyContactFinder.Leads.{Bucket, Discovery, Lookup}
 
@@ -27,7 +28,7 @@ defmodule CompanyContactFinder.Leads.DiscoveryTest do
 
   test "suggests companies named in the pages it reads, minus existing leads" do
     stub_discovery()
-    {:ok, bucket} = Leads.create_bucket(bucket_attrs())
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product())
     Repo.insert!(%Lookup{company_name: "acme logistics", bucket_id: bucket.id})
 
     assert {:ok, %{queries: [_ | _], suggestions: suggestions}} =
@@ -59,7 +60,7 @@ defmodule CompanyContactFinder.Leads.DiscoveryTest do
       })
     end)
 
-    {:ok, bucket} = Leads.create_bucket(bucket_attrs())
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product())
     assert {:ok, %{suggestions: []}} = Discovery.discover(bucket)
     assert_received {:prompt, prompt}
     assert prompt =~ "Bidii Freight"
@@ -67,9 +68,51 @@ defmodule CompanyContactFinder.Leads.DiscoveryTest do
     refute prompt =~ "facebook.com"
   end
 
+  test "wide search uses the planned queries and stops at max companies" do
+    queries = for n <- 1..30, do: "logistics companies list #{n}"
+
+    Req.Test.stub(CompanyContactFinder.AI.OpenAI, fn conn ->
+      {:ok, raw, conn} = Plug.Conn.read_body(conn)
+      name = raw |> Jason.decode!() |> get_in(["response_format", "json_schema", "name"])
+
+      content =
+        if name == "search_queries" do
+          %{"queries" => queries}
+        else
+          discovery_content()
+        end
+
+      Req.Test.json(conn, %{
+        "choices" => [%{"message" => %{"content" => Jason.encode!(content)}}]
+      })
+    end)
+
+    stub_serper(discovery_serper_body())
+    stub_site(discovery_pages())
+
+    {:ok, bucket} =
+      Leads.create_bucket(bucket_with_product(%{"breadth" => "wide", "max_companies" => "1"}))
+
+    assert {:ok, %{queries: used, suggestions: suggestions}} = Discovery.discover(bucket)
+    assert length(used) == 24
+    assert length(suggestions) == 1
+    assert hd(suggestions).name == "Bidii Freight"
+  end
+
+  test "fresh acquire leaves out uploaded clients" do
+    stub_discovery()
+    assert %{inserted: 1} = Clients.import_csv("company\nChui Couriers\n")
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product())
+
+    assert {:ok, %{suggestions: suggestions}} = Leads.discover_companies(bucket)
+    names = Enum.map(suggestions, & &1.name)
+    assert "Bidii Freight" in names
+    refute "Chui Couriers" in names
+  end
+
   test "returns the search error when every search fails" do
     stub_serper_error(401)
-    {:ok, bucket} = Leads.create_bucket(bucket_attrs())
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product())
     assert {:error, {:serper_http_error, 401}} = Discovery.discover(bucket)
   end
 end

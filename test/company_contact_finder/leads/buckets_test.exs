@@ -25,13 +25,13 @@ defmodule CompanyContactFinder.Leads.BucketsTest do
 
   test "create_bucket/1 broadcasts and sets criteria_changed_at" do
     Leads.subscribe_buckets()
-    assert {:ok, bucket} = Leads.create_bucket(bucket_attrs())
+    assert {:ok, bucket} = Leads.create_bucket(bucket_with_product())
     assert bucket.criteria_changed_at
     assert_received {:bucket_updated, %{id: id}} when id == bucket.id
   end
 
   test "the brief is scored against the lookup's bucket" do
-    {:ok, bucket} = Leads.create_bucket(bucket_attrs())
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product())
     test_pid = self()
 
     Req.Test.stub(CompanyContactFinder.AI.OpenAI, fn conn ->
@@ -39,7 +39,19 @@ defmodule CompanyContactFinder.Leads.BucketsTest do
       send(test_pid, {:prompt, body})
 
       Req.Test.json(conn, %{
-        "choices" => [%{"message" => %{"content" => Jason.encode!(brief_content())}}]
+        "choices" => [
+          %{
+            "message" => %{
+              "content" =>
+                Jason.encode!(
+                  brief_content(%{
+                    "recommended_product" => "GS1 barcodes",
+                    "product_reason" => "They move physical freight"
+                  })
+                )
+            }
+          }
+        ]
       })
     end)
 
@@ -50,17 +62,19 @@ defmodule CompanyContactFinder.Leads.BucketsTest do
 
     assert_received {:prompt, body}
     assert body =~ "Lead bucket: Nairobi logistics firms"
-    assert body =~ "Service we will offer: SSCC logistics labels"
+    assert body =~ "Product: GS1 barcodes."
     assert body =~ "Not a fit (disqualifiers): Already GS1 members"
 
     brief = Leads.get_lookup!(lookup.id).brief
     assert brief.fit == "strong"
     assert brief.pitch =~ "GTINs"
     assert brief.scored_bucket_id == bucket.id
+    assert brief.owner_email == "barcodes-owner@example.com"
+    assert brief.product_reason == "They move physical freight"
   end
 
   test "list_buckets/0 includes lead counts, strong fits and average score" do
-    {:ok, bucket} = Leads.create_bucket(bucket_attrs())
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product())
     a = Repo.insert!(%Lookup{company_name: "A", bucket_id: bucket.id, status: :done})
     b = Repo.insert!(%Lookup{company_name: "B", bucket_id: bucket.id, status: :done})
     Repo.insert!(%Lookup{company_name: "C", bucket_id: bucket.id})
@@ -73,12 +87,12 @@ defmodule CompanyContactFinder.Leads.BucketsTest do
 
   test "assign_bucket/2 moves a crawled lookup and rescores it" do
     lookup = crawled_lookup()
-    {:ok, bucket} = Leads.create_bucket(bucket_attrs())
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product())
 
     assert {:ok, moved} = Leads.assign_bucket(lookup, bucket.id)
     assert moved.bucket.id == bucket.id
 
-    lookup = await_analysed(lookup.id)
+    lookup = Leads.get_lookup!(lookup.id)
     assert lookup.brief.scored_bucket_id == bucket.id
     refute Leads.brief_stale?(lookup)
   end
@@ -89,7 +103,7 @@ defmodule CompanyContactFinder.Leads.BucketsTest do
   end
 
   test "editing criteria makes briefs stale until rescored" do
-    {:ok, bucket} = Leads.create_bucket(bucket_attrs())
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product())
     lookup = crawled_lookup(bucket)
     refute Leads.brief_stale?(lookup)
 
@@ -98,16 +112,18 @@ defmodule CompanyContactFinder.Leads.BucketsTest do
       set: [scored_at: DateTime.add(DateTime.utc_now(:second), -60)]
     )
 
-    {:ok, _bucket} = Leads.update_bucket(bucket, %{"services" => ["Traceability solutions"]})
+    {:ok, _bucket} =
+      Leads.update_bucket(bucket, %{"target_description" => "Warehouses that export"})
+
     lookup = Leads.get_lookup!(lookup.id)
     assert Leads.brief_stale?(lookup)
 
     assert {:ok, 1} = Leads.rescore_bucket(lookup.bucket)
-    refute Leads.brief_stale?(await_analysed(lookup.id))
+    refute Leads.brief_stale?(Leads.get_lookup!(lookup.id))
   end
 
   test "renaming a bucket doesn't make briefs stale" do
-    {:ok, bucket} = Leads.create_bucket(bucket_attrs())
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product())
     lookup = crawled_lookup(bucket)
 
     {:ok, _} = Leads.update_bucket(bucket, %{"name" => "Renamed"})
@@ -115,7 +131,7 @@ defmodule CompanyContactFinder.Leads.BucketsTest do
   end
 
   test "deleting a bucket keeps its lookups" do
-    {:ok, bucket} = Leads.create_bucket(bucket_attrs())
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product())
     lookup = Repo.insert!(%Lookup{company_name: "Acme", bucket_id: bucket.id})
 
     assert {:ok, _} = Leads.delete_bucket(bucket)
@@ -124,7 +140,7 @@ defmodule CompanyContactFinder.Leads.BucketsTest do
 
   test "start_bulk_lookups/2 puts lookups in the bucket" do
     stub_all()
-    {:ok, bucket} = Leads.create_bucket(bucket_attrs())
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product())
 
     assert {:ok, [lookup]} = Leads.start_bulk_lookups("Acme Logistics", bucket.id)
     assert lookup.bucket_id == bucket.id

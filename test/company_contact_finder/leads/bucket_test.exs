@@ -7,17 +7,44 @@ defmodule CompanyContactFinder.Leads.BucketTest do
 
   test "splits comma-separated industries and locations" do
     changeset =
-      Bucket.changeset(%Bucket{}, bucket_attrs(%{"industries" => "Food, Beverages,, food"}))
+      Bucket.changeset(
+        %Bucket{},
+        bucket_attrs(%{"industries" => "Food, Beverages,, food", "product_ids" => [1]})
+      )
 
     assert changeset.valid?
     assert Ecto.Changeset.get_change(changeset, :industries) == ["Food", "Beverages", "food"]
     assert Ecto.Changeset.get_change(changeset, :locations) == ["Nairobi"]
   end
 
-  test "requires name, target and at least one service" do
+  test "requires name, target and at least one product" do
     changeset = Bucket.changeset(%Bucket{}, %{})
     refute changeset.valid?
-    assert Keyword.keys(changeset.errors) -- [:name, :target_description, :services] == []
+    assert Keyword.keys(changeset.errors) -- [:name, :target_description, :product_ids] == []
+  end
+
+  test "accepts breadth and a company cap" do
+    changeset =
+      Bucket.changeset(
+        %Bucket{},
+        bucket_attrs(%{"product_ids" => ["1"], "breadth" => "wide", "max_companies" => "40"})
+      )
+
+    assert changeset.valid?
+    assert Ecto.Changeset.get_change(changeset, :breadth) == "wide"
+    assert Ecto.Changeset.get_change(changeset, :max_companies) == 40
+  end
+
+  test "allows a run past 200 companies and rejects more than 500" do
+    assert Bucket.changeset(
+             %Bucket{},
+             bucket_attrs(%{"product_ids" => ["1"], "max_companies" => "250"})
+           ).valid?
+
+    refute Bucket.changeset(
+             %Bucket{},
+             bucket_attrs(%{"product_ids" => ["1"], "max_companies" => "501"})
+           ).valid?
   end
 
   test "splits comma-separated services" do

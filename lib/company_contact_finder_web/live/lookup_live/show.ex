@@ -165,6 +165,12 @@ defmodule CompanyContactFinderWeb.LookupLive.Show do
                       </div>
                     </div>
 
+                    <p :if={product_name(@brief)} id="recommended-product" class="text-sm">
+                      Pitch {product_name(@brief)}.
+                      <span :if={@brief.owner_email}>Copy {@brief.owner_email}.</span>
+                      <span :if={@brief.product_reason}>{@brief.product_reason}</span>
+                    </p>
+
                     <p :if={@brief.summary} class="leading-relaxed">{@brief.summary}</p>
 
                     <dl class="grid gap-4 sm:grid-cols-2">
@@ -203,7 +209,7 @@ defmodule CompanyContactFinderWeb.LookupLive.Show do
                     >
                       <p :if={@brief.pitch} id="brief-pitch" class="text-sm">
                         <span class="font-semibold text-gs1-blue dark:text-white">
-                          How to pitch {(@bucket && Enum.join(@bucket.services, ", ")) || "GS1 Kenya"}:
+                          How to pitch {pitch_subject(@bucket)}:
                         </span>
                         {@brief.pitch}
                       </p>
@@ -398,7 +404,10 @@ defmodule CompanyContactFinderWeb.LookupLive.Show do
         </span>
       </div>
       <ul id={@id} phx-update="stream" class="divide-y divide-base-300">
-        <li class="hidden px-5 py-6 text-center text-sm text-base-content/50 only:block">
+        <li
+          id={"#{@id}-empty"}
+          class="hidden px-5 py-6 text-center text-sm text-base-content/50 only:block"
+        >
           {if @busy?, do: "Looking…", else: "None found"}
         </li>
         <li :for={{dom_id, contact} <- @stream} id={dom_id} class="group px-5 py-3">
@@ -643,6 +652,19 @@ defmodule CompanyContactFinderWeb.LookupLive.Show do
       true -> :todo
     end
   end
+
+  defp product_name(%{recommended_product: %{name: name}}) when is_binary(name), do: name
+  defp product_name(_), do: nil
+
+  defp pitch_subject(nil), do: "GS1 Kenya"
+
+  defp pitch_subject(%{products: products}) when is_list(products) and products != [],
+    do: Enum.map_join(products, ", ", & &1.name)
+
+  defp pitch_subject(%{services: services}) when is_list(services),
+    do: Enum.join(services, ", ")
+
+  defp pitch_subject(_), do: "GS1 Kenya"
 
   defp source_path(url) do
     case URI.parse(url || "") do

@@ -1,6 +1,7 @@
 defmodule CompanyContactFinderWeb.BucketLive.Form do
   use CompanyContactFinderWeb, :live_view
 
+  alias CompanyContactFinder.Catalog
   alias CompanyContactFinder.Leads
   alias CompanyContactFinder.Leads.Bucket
 
@@ -36,6 +37,16 @@ defmodule CompanyContactFinderWeb.BucketLive.Form do
               placeholder="e.g. Nairobi food manufacturers"
               class={field_class()}
             />
+            <.input
+              field={@form[:flow]}
+              type="select"
+              label="Flow"
+              options={[{"Fresh acquire", "acquire"}, {"Upsell existing clients", "upsell"}]}
+            />
+            <p class="-mt-2 text-xs text-base-content/50">
+              Fresh acquire searches the public web and skips companies on your client list.
+              Upsell scores the companies you upload on the Clients page.
+            </p>
           </.card>
 
           <.card class="space-y-5 p-6">
@@ -106,34 +117,54 @@ defmodule CompanyContactFinderWeb.BucketLive.Form do
 
           <.card class="space-y-5 p-6">
             <.section_title number="3" title="What will you offer them?" />
-            <div>
-              <.input
-                field={@form[:services]}
-                value={join(@form[:services].value)}
-                type="text"
-                label="Services (comma separated)"
-                placeholder="Pick one or more below, or type your own"
-                class={field_class()}
-              />
-              <div class="mt-2 flex flex-wrap gap-1.5">
-                <button
-                  :for={service <- Bucket.services()}
-                  type="button"
-                  phx-click="toggle_service"
-                  phx-value-service={service}
-                  class={[
-                    "rounded-full border px-2.5 py-1 text-xs font-medium transition",
-                    if(service in selected_services(@form),
-                      do: "border-gs1-orange bg-gs1-orange text-white",
-                      else:
-                        "border-base-300 text-base-content/70 hover:border-gs1-orange hover:text-gs1-orange"
-                    )
-                  ]}
+            <fieldset id="products">
+              <legend class="mb-2 text-sm font-medium">Products</legend>
+              <input type="hidden" name="bucket[product_ids][]" value="" />
+              <div class="flex flex-wrap gap-2">
+                <label
+                  :for={product <- @products}
+                  class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-base-300 px-3 py-1.5 text-sm"
                 >
-                  {service}
-                </button>
+                  <input
+                    type="checkbox"
+                    name="bucket[product_ids][]"
+                    value={product.id}
+                    checked={product.id in selected_product_ids(@form)}
+                  />
+                  {product.name}
+                </label>
               </div>
+              <p :for={{message, _} <- @form[:product_ids].errors} class="mt-1 text-sm text-red-600">
+                {message}
+              </p>
+              <p class="mt-2 text-xs text-base-content/50">
+                <.link
+                  navigate={~p"/products"}
+                  class="font-medium text-gs1-blue hover:underline dark:text-white"
+                >
+                  Manage products
+                </.link>
+              </p>
+            </fieldset>
+            <div class="grid gap-4 sm:grid-cols-2">
+              <.input
+                field={@form[:breadth]}
+                type="select"
+                label="Search breadth"
+                options={[{"Narrow", "narrow"}, {"Wide", "wide"}]}
+              />
+              <.input
+                field={@form[:max_companies]}
+                type="number"
+                label="Max companies"
+                min="1"
+                max="500"
+              />
             </div>
+            <p class="text-xs text-base-content/50">
+              Set breadth to Wide and this to 200 or more for a full run.
+              Each company you add is still crawled and scored on its own.
+            </p>
             <.input
               field={@form[:service_details]}
               type="textarea"
@@ -175,15 +206,33 @@ defmodule CompanyContactFinderWeb.BucketLive.Form do
     """
   end
 
+  defp products do
+    Catalog.seed_products()
+    Catalog.list_products()
+  end
+
   defp join(list) when is_list(list), do: Enum.join(list, ", ")
   defp join(value), do: value
 
-  # The services field holds a list once cast, or raw comma-separated text from the form.
-  defp selected_services(form) do
-    case form[:services].value do
-      list when is_list(list) -> list
-      text when is_binary(text) -> text |> String.split(",") |> Enum.map(&String.trim/1)
-      _ -> []
+  defp selected_product_ids(form) do
+    case form[:product_ids].value do
+      list when is_list(list) ->
+        Enum.flat_map(list, fn
+          id when is_integer(id) ->
+            [id]
+
+          id when is_binary(id) ->
+            case Integer.parse(id) do
+              {int, ""} -> [int]
+              _ -> []
+            end
+
+          _ ->
+            []
+        end)
+
+      _ ->
+        []
     end
   end
 
@@ -198,6 +247,7 @@ defmodule CompanyContactFinderWeb.BucketLive.Form do
     {:ok,
      socket
      |> assign(:bucket, bucket)
+     |> assign(:products, products())
      |> assign(:page_title, if(bucket.id, do: "Edit #{bucket.name}", else: "New lead bucket"))
      |> assign(:form, to_form(Leads.change_bucket(bucket)))}
   end
@@ -206,17 +256,6 @@ defmodule CompanyContactFinderWeb.BucketLive.Form do
   def handle_event("validate", %{"bucket" => params}, socket) do
     changeset = Leads.change_bucket(socket.assigns.bucket, params)
     {:noreply, assign(socket, :form, to_form(changeset, action: :validate))}
-  end
-
-  def handle_event("toggle_service", %{"service" => service}, socket) do
-    selected = selected_services(socket.assigns.form) |> Enum.reject(&(&1 == ""))
-
-    services =
-      if service in selected, do: List.delete(selected, service), else: selected ++ [service]
-
-    params = Map.put(socket.assigns.form.params, "services", services)
-    changeset = Leads.change_bucket(socket.assigns.bucket, params)
-    {:noreply, assign(socket, :form, to_form(changeset))}
   end
 
   def handle_event("save", %{"bucket" => params}, socket) do

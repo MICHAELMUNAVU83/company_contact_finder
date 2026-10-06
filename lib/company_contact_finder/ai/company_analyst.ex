@@ -38,8 +38,12 @@ defmodule CompanyContactFinder.AI.CompanyAnalyst do
       retailers or exports, and shows no sign of already having it), 20% how
       reachable it is (quality of the contacts found).
     - fit_reason explains the fit and score in 1-2 sentences, citing the site.
-    - pitch is 1-2 sentences on how to offer the bucket's service to this
-      company specifically.
+    - pitch is two sentences a first email can use. The first cites one fact
+      from the site about what the company sells or who it sells to. The
+      second names the product and one of its proof points. No greeting and
+      no sign-off.
+    - recommended_product is the exact name of one product in the bucket, or
+      "unknown" if none fits. product_reason is one sentence citing the site.
   - If no bucket is given: fit is "unknown", lead_score is 0-100 for how
     complete and reachable the lead is and how clear the business is, and
     pitch is a general GS1 Kenya angle if one is obvious, else "unknown".
@@ -65,7 +69,7 @@ defmodule CompanyContactFinder.AI.CompanyAnalyst do
     with {:ok, result} <- OpenAI.structured_chat(messages, json_schema()) do
       attrs =
         result
-        |> to_attrs(contacts)
+        |> to_attrs(contacts, bucket)
         |> Map.merge(%{
           scored_bucket_id: bucket && bucket.id,
           scored_at: DateTime.utc_now(:second)
@@ -115,9 +119,11 @@ defmodule CompanyContactFinder.AI.CompanyAnalyst do
       list_line("Target industries", bucket.industries),
       list_line("Target locations", bucket.locations),
       list_line("Target company sizes", bucket.company_sizes),
-      list_line("Services we will offer", bucket.services),
+      product_lines(bucket),
       bucket.service_details && "Service details: #{bucket.service_details}",
-      bucket.disqualifiers && "Not a fit (disqualifiers): #{bucket.disqualifiers}"
+      bucket.disqualifiers && "Not a fit (disqualifiers): #{bucket.disqualifiers}",
+      bucket.flow == "upsell" &&
+        "Relationship: this company is already a GS1 Kenya client. Score the additional product in this bucket."
     ]
 
     Enum.reject(lines, &is_nil/1) |> Enum.join("\n") |> Kernel.<>("\n")
@@ -126,7 +132,17 @@ defmodule CompanyContactFinder.AI.CompanyAnalyst do
   defp list_line(_label, []), do: nil
   defp list_line(label, items), do: "#{label}: #{Enum.join(items, ", ")}"
 
-  defp to_attrs(%{content: content} = result, contacts) do
+  defp product_lines(%Bucket{products: products}) when is_list(products) and products != [] do
+    Enum.map_join(products, "\n", fn product ->
+      "Product: #{product.name}. For: #{product.audience}. Not for: #{product.not_for}. Proof: #{Enum.join(product.proof_points, "; ")}."
+    end)
+  end
+
+  defp product_lines(%Bucket{} = bucket),
+    do: list_line("Services we will offer", bucket.services)
+
+  defp to_attrs(%{content: content} = result, contacts, bucket) do
+    product = matched_product(bucket, unknown_to_nil(content["recommended_product"]))
     known_values = MapSet.new(contacts, & &1.value)
 
     best_contact =
@@ -153,6 +169,9 @@ defmodule CompanyContactFinder.AI.CompanyAnalyst do
       fit: if(content["fit"] in ~w(strong partial weak), do: content["fit"], else: "unknown"),
       fit_reason: unknown_to_nil(content["fit_reason"]),
       pitch: unknown_to_nil(content["pitch"]),
+      recommended_product_id: product && product.id,
+      product_reason: if(product, do: unknown_to_nil(content["product_reason"])),
+      owner_email: product && product.owner_email,
       raw_response: content,
       model: result.model,
       prompt_tokens: result.prompt_tokens,
@@ -160,6 +179,14 @@ defmodule CompanyContactFinder.AI.CompanyAnalyst do
       contacts_analysis: analysis
     }
   end
+
+  defp matched_product(%Bucket{products: products}, name)
+       when is_list(products) and is_binary(name) do
+    wanted = String.downcase(name)
+    Enum.find(products, &(String.downcase(&1.name) == wanted))
+  end
+
+  defp matched_product(_, _), do: nil
 
   defp unknown_to_nil(value) when is_binary(value) do
     if String.downcase(String.trim(value)) in ["", "unknown", "n/a"], do: nil, else: value
@@ -188,7 +215,7 @@ defmodule CompanyContactFinder.AI.CompanyAnalyst do
         required:
           ~w(summary industry products_services locations company_size_hint target_customers
                      contacts_analysis best_contact fit fit_reason lead_score lead_score_reason
-                     pitch outreach_angle),
+                     pitch outreach_angle recommended_product product_reason),
         properties: %{
           summary: %{
             type: "string",
@@ -219,7 +246,9 @@ defmodule CompanyContactFinder.AI.CompanyAnalyst do
           pitch: string,
           lead_score: %{type: "integer"},
           lead_score_reason: string,
-          outreach_angle: string
+          outreach_angle: string,
+          recommended_product: string,
+          product_reason: string
         }
       }
     }

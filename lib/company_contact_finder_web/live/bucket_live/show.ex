@@ -1,6 +1,7 @@
 defmodule CompanyContactFinderWeb.BucketLive.Show do
   use CompanyContactFinderWeb, :live_view
 
+  alias CompanyContactFinder.Clients
   alias CompanyContactFinder.Leads
   alias CompanyContactFinder.Leads.Pipeline
 
@@ -24,23 +25,34 @@ defmodule CompanyContactFinderWeb.BucketLive.Show do
             >
               {@bucket.name}
             </h1>
+            <p class="mt-2 text-xs font-semibold uppercase tracking-wide text-base-content/50">
+              {if @bucket.flow == "upsell", do: "Upsell", else: "Fresh acquire"}
+            </p>
             <div class="mt-2 flex flex-wrap gap-1.5">
               <p
-                :for={service <- @bucket.services}
+                :for={product <- @bucket.products}
                 class="inline-flex items-center gap-1.5 rounded-md bg-gs1-orange/10 px-2 py-1 text-sm font-semibold text-gs1-orange-dark"
               >
-                <.icon name="hero-tag" class="size-4" /> {service}
+                <.icon name="hero-tag" class="size-4" /> {product.name}
               </p>
             </div>
           </div>
           <div class="flex shrink-0 flex-wrap items-center gap-2">
             <.brand_button
+              :if={@bucket.flow != "upsell"}
               id="discover-companies"
               type="button"
               phx-click="discover"
               disabled={@discovery == :loading}
             >
               <.icon name="hero-sparkles" class="size-4" /> Find companies online
+            </.brand_button>
+            <.brand_button
+              variant="outline"
+              navigate={~p"/buckets/#{@bucket}/campaign"}
+              id="preview-campaign"
+            >
+              <.icon name="hero-envelope" class="size-4" /> Preview campaign
             </.brand_button>
             <.brand_button variant="outline" navigate={~p"/buckets/#{@bucket}/edit"} id="edit-bucket">
               <.icon name="hero-pencil-square" class="size-4" /> Edit
@@ -83,7 +95,63 @@ defmodule CompanyContactFinderWeb.BucketLive.Show do
               </dl>
             </.card>
 
-            <.card class="p-6">
+            <.card :if={@bucket.flow == "upsell"} id="client-picker-card" class="p-6">
+              <h2 class="mb-1 text-base font-bold text-gs1-blue dark:text-white">Add clients</h2>
+              <p class="mb-4 text-sm text-base-content/60">
+                {@client_remaining} of {@client_total} uploaded clients are not in this bucket yet.
+                <.link
+                  navigate={~p"/clients"}
+                  class="font-medium text-gs1-blue hover:underline dark:text-white"
+                >
+                  Upload clients
+                </.link>
+              </p>
+              <p :if={@client_total == 0} id="clients-missing" class="text-sm text-base-content/60">
+                Upload your client list first, then come back to score them for this product.
+              </p>
+              <.form
+                :if={@available_clients != []}
+                for={@pick_form}
+                id="client-picker"
+                phx-submit="add_clients"
+                class="space-y-3"
+              >
+                <input type="hidden" name="pick[ids][]" value="" />
+                <ul class="max-h-72 space-y-2 overflow-y-auto">
+                  <li :for={client <- @available_clients}>
+                    <label class="flex items-start gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        name="pick[ids][]"
+                        value={client.id}
+                        class="mt-1"
+                      />
+                      <span>
+                        <span class="font-medium">{client.company_name}</span>
+                        <span :if={client.email} class="block text-xs text-base-content/50">
+                          {client.email}
+                        </span>
+                      </span>
+                    </label>
+                  </li>
+                </ul>
+                <div class="flex flex-wrap justify-end gap-2">
+                  <button
+                    id="add-all-clients"
+                    type="button"
+                    phx-click="add_all_clients"
+                    class="text-sm font-medium text-gs1-blue hover:underline dark:text-white"
+                  >
+                    Add all {@client_remaining}
+                  </button>
+                  <.brand_button type="submit" id="add-selected-clients" size="sm">
+                    Score selected
+                  </.brand_button>
+                </div>
+              </.form>
+            </.card>
+
+            <.card :if={@bucket.flow != "upsell"} class="p-6">
               <h2 class="mb-1 text-base font-bold text-gs1-blue dark:text-white">Add companies</h2>
               <p class="mb-4 text-sm text-base-content/60">
                 One per line. Each is searched, crawled and scored against this bucket.
@@ -336,6 +404,7 @@ defmodule CompanyContactFinderWeb.BucketLive.Show do
      |> assign(:page_title, bucket.name)
      |> assign(:add_form, to_form(%{"names" => ""}, as: :add))
      |> assign(:discovery, nil)
+     |> assign(:pick_form, to_form(%{}, as: :pick))
      |> load_leads()}
   end
 
@@ -353,6 +422,21 @@ defmodule CompanyContactFinderWeb.BucketLive.Show do
     |> assign(:strong_count, Enum.count(leads, &(&1.brief && &1.brief.fit == "strong")))
     |> assign(:stale_count, Enum.count(leads, &Leads.brief_stale?/1))
     |> stream(:leads, leads, reset: true)
+    |> load_client_picker()
+  end
+
+  defp load_client_picker(%{assigns: %{bucket: %{flow: "upsell", id: id}}} = socket) do
+    socket
+    |> assign(:available_clients, Clients.available_for_bucket(id))
+    |> assign(:client_remaining, Clients.available_count(id))
+    |> assign(:client_total, Clients.count_clients())
+  end
+
+  defp load_client_picker(socket) do
+    socket
+    |> assign(:available_clients, [])
+    |> assign(:client_remaining, 0)
+    |> assign(:client_total, 0)
   end
 
   @impl true
@@ -366,6 +450,23 @@ defmodule CompanyContactFinderWeb.BucketLive.Show do
          socket
          |> put_flash(:info, "Finding and scoring #{length(lookups)} companies.")
          |> assign(:add_form, to_form(%{"names" => ""}, as: :add))
+         |> load_leads()}
+    end
+  end
+
+  def handle_event("add_clients", %{"pick" => %{"ids" => ids}}, socket) do
+    queue_clients(socket, ids)
+  end
+
+  def handle_event("add_all_clients", _params, socket) do
+    case Leads.start_all_client_lookups(socket.assigns.bucket) do
+      {:ok, []} ->
+        {:noreply, put_flash(socket, :error, "Every uploaded client is already in this bucket.")}
+
+      {:ok, lookups} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Scoring #{length(lookups)} clients.")
          |> load_leads()}
     end
   end
@@ -415,6 +516,19 @@ defmodule CompanyContactFinderWeb.BucketLive.Show do
      socket
      |> put_flash(:info, "Bucket deleted.")
      |> push_navigate(to: ~p"/buckets")}
+  end
+
+  defp queue_clients(socket, ids) do
+    case Leads.start_client_lookups(socket.assigns.bucket, ids) do
+      {:ok, []} ->
+        {:noreply, put_flash(socket, :error, "Tick at least one client.")}
+
+      {:ok, lookups} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Scoring #{length(lookups)} clients.")
+         |> load_leads()}
+    end
   end
 
   @impl true

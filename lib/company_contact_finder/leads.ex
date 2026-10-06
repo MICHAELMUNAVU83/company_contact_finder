@@ -12,6 +12,9 @@ defmodule CompanyContactFinder.Leads do
 
   import Ecto.Query
 
+  alias CompanyContactFinder.Catalog.Product
+  alias CompanyContactFinder.Clients
+  alias CompanyContactFinder.Clients.Client
   alias CompanyContactFinder.Repo
   alias CompanyContactFinder.Leads.{Bucket, CompanyBrief, Contact, Discovery, Lookup, Pipeline}
 
@@ -76,7 +79,11 @@ defmodule CompanyContactFinder.Leads do
   def get_lookup!(id) do
     Lookup
     |> Repo.get!(id)
-    |> Repo.preload([:bucket, brief: [], contacts: from(c in Contact, order_by: [c.type, c.id])])
+    |> Repo.preload(
+      bucket: :products,
+      brief: :recommended_product,
+      contacts: from(c in Contact, order_by: [c.type, c.id])
+    )
   end
 
   @doc "Reloads a lookup with its brief and contact count, as used by the index."
@@ -181,6 +188,105 @@ defmodule CompanyContactFinder.Leads do
     {:ok, lookups}
   end
 
+  @max_client_lookups 500
+
+  @doc """
+  Starts lookups for uploaded clients, using the website and contacts from
+  the client list when they were provided.
+  """
+  def start_client_lookups(%Bucket{} = bucket, client_ids) when is_list(client_ids) do
+    ids =
+      client_ids
+      |> Enum.flat_map(&parse_id/1)
+      |> Enum.uniq()
+      |> Enum.take(@max_client_lookups)
+
+    existing = bucket_name_keys(bucket.id)
+
+    lookups =
+      ids
+      |> Clients.list_clients_by_ids()
+      |> Enum.reject(&(&1.name_key in existing))
+      |> Enum.flat_map(&insert_client_lookup(bucket, &1))
+
+    run_lookups(lookups)
+    {:ok, lookups}
+  end
+
+  @doc "Starts lookups for every uploaded client not already in the bucket."
+  def start_all_client_lookups(%Bucket{} = bucket) do
+    start_client_lookups(bucket, Clients.available_ids(bucket.id, @max_client_lookups))
+  end
+
+  defp parse_id(id) when is_integer(id), do: [id]
+
+  defp parse_id(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {int, ""} -> [int]
+      _ -> []
+    end
+  end
+
+  defp parse_id(_), do: []
+
+  defp bucket_name_keys(bucket_id) do
+    Repo.all(from l in Lookup, where: l.bucket_id == ^bucket_id, select: l.company_name)
+    |> MapSet.new(&Client.name_key/1)
+  end
+
+  defp insert_client_lookup(bucket, %Client{} = client) do
+    case create_lookup(%{"company_name" => client.company_name, "bucket_id" => bucket.id}) do
+      {:ok, lookup} ->
+        lookup = apply_client_website(lookup, client.website_url)
+        contacts = client_contacts(client)
+        if contacts != [], do: add_contacts(lookup, contacts)
+        [lookup]
+
+      {:error, _} ->
+        []
+    end
+  end
+
+  defp apply_client_website(lookup, url) when is_binary(url) and url != "" do
+    case lookup |> Lookup.website_changeset(%{"website_url" => url}) |> Repo.update() do
+      {:ok, lookup} -> lookup
+      {:error, _} -> lookup
+    end
+  end
+
+  defp apply_client_website(lookup, _), do: lookup
+
+  defp client_contacts(client) do
+    []
+    |> add_client_contact(:email, client.email)
+    |> add_client_contact(:phone, client.phone)
+  end
+
+  defp add_client_contact(contacts, _type, value) when value in [nil, ""], do: contacts
+
+  defp add_client_contact(contacts, type, value) do
+    contacts ++ [%{type: type, value: value, source_url: "Uploaded client list"}]
+  end
+
+  defp run_lookups([]), do: :ok
+
+  defp run_lookups(lookups) do
+    ids = Enum.map(lookups, & &1.id)
+
+    max_concurrency =
+      Application.get_env(:company_contact_finder, :lookups, [])[:max_concurrency] || 3
+
+    run_async(fn ->
+      ids
+      |> Task.async_stream(&Pipeline.run/1,
+        max_concurrency: max_concurrency,
+        timeout: :infinity,
+        ordered: false
+      )
+      |> Stream.run()
+    end)
+  end
+
   @doc "Re-runs the pipeline, using the user's website instead of searching."
   def rerun_with_website(%Lookup{} = lookup, attrs) do
     changeset = Lookup.website_changeset(lookup, attrs)
@@ -250,7 +356,12 @@ defmodule CompanyContactFinder.Leads do
   end
 
   defp run_async(fun) do
-    {:ok, _pid} = Task.Supervisor.start_child(CompanyContactFinder.TaskSupervisor, fun)
+    if Application.get_env(:company_contact_finder, :sync_pipeline, false) do
+      fun.()
+      {:ok, self()}
+    else
+      {:ok, _pid} = Task.Supervisor.start_child(CompanyContactFinder.TaskSupervisor, fun)
+    end
   end
 
   defp create_lookup(attrs) do
@@ -293,6 +404,7 @@ defmodule CompanyContactFinder.Leads do
           avg_score: type(avg(b.lead_score), :float)
         }
     )
+    |> Repo.preload(:products)
   end
 
   @doc "Bucket id/name pairs for select inputs."
@@ -300,14 +412,23 @@ defmodule CompanyContactFinder.Leads do
     Repo.all(from bk in Bucket, order_by: bk.name, select: {bk.name, bk.id})
   end
 
-  def get_bucket!(id), do: Repo.get!(Bucket, id)
+  def get_bucket!(id), do: Bucket |> Repo.get!(id) |> Repo.preload(:products)
 
-  def change_bucket(%Bucket{} = bucket \\ %Bucket{}, attrs \\ %{}),
-    do: Bucket.changeset(bucket, attrs)
+  def change_bucket(%Bucket{} = bucket \\ %Bucket{}, attrs \\ %{}) do
+    attrs =
+      if bucket.id && attrs == %{} do
+        Map.put(attrs, "product_ids", Enum.map(bucket.products || [], & &1.id))
+      else
+        attrs
+      end
+
+    Bucket.changeset(bucket, attrs)
+  end
 
   def create_bucket(attrs) do
     %Bucket{}
     |> Bucket.changeset(attrs)
+    |> put_products()
     |> Repo.insert()
     |> tap_ok(&Phoenix.PubSub.broadcast(@pubsub, "buckets", {:bucket_updated, &1}))
   end
@@ -316,11 +437,30 @@ defmodule CompanyContactFinder.Leads do
   Updates a bucket's criteria. Existing briefs keep their scores until the
   bucket is rescored (see `rescore_bucket/1`).
   """
+  def update_campaign(%Bucket{} = bucket, attrs) do
+    bucket
+    |> Bucket.campaign_changeset(attrs)
+    |> Repo.update()
+  end
+
   def update_bucket(%Bucket{} = bucket, attrs) do
     bucket
+    |> Repo.preload(:products)
     |> Bucket.changeset(attrs)
+    |> put_products()
     |> Repo.update()
     |> tap_ok(&Phoenix.PubSub.broadcast(@pubsub, "buckets", {:bucket_updated, &1}))
+  end
+
+  defp put_products(changeset) do
+    case Ecto.Changeset.get_change(changeset, :product_ids) do
+      nil ->
+        changeset
+
+      ids ->
+        products = Repo.all(from p in Product, where: p.id in ^ids, order_by: p.name)
+        Ecto.Changeset.put_assoc(changeset, :products, products)
+    end
   end
 
   @doc "Deletes a bucket. Its lookups are kept, without a bucket."
@@ -334,11 +474,13 @@ defmodule CompanyContactFinder.Leads do
   Searches online for companies that may suit the bucket, leaving out ones
   already in it. See `CompanyContactFinder.Leads.Discovery`. Runs in the caller.
   """
+  def discover_companies(%Bucket{flow: "upsell"}), do: {:ok, %{queries: [], suggestions: []}}
+
   def discover_companies(%Bucket{id: bucket_id} = bucket) do
     existing =
       Repo.all(from l in Lookup, where: l.bucket_id == ^bucket_id, select: l.company_name)
 
-    Discovery.discover(bucket, exclude: existing)
+    Discovery.discover(bucket, exclude: existing ++ Clients.company_names())
   end
 
   @doc """
@@ -358,13 +500,17 @@ defmodule CompanyContactFinder.Leads do
 
     if ids != [] do
       run_async(fn ->
-        ids
-        |> Task.async_stream(&Pipeline.analyse/1,
-          max_concurrency: max_concurrency,
-          timeout: :infinity,
-          ordered: false
-        )
-        |> Stream.run()
+        if Application.get_env(:company_contact_finder, :sync_pipeline, false) do
+          Enum.each(ids, &Pipeline.analyse/1)
+        else
+          ids
+          |> Task.async_stream(&Pipeline.analyse/1,
+            max_concurrency: max_concurrency,
+            timeout: :infinity,
+            ordered: false
+          )
+          |> Stream.run()
+        end
       end)
     end
 

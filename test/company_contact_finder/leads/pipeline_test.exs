@@ -148,6 +148,50 @@ defmodule CompanyContactFinder.Leads.PipelineTest do
     assert lookup.error == "Serper rejected the API key"
   end
 
+  test "fetches one extra page when the site has no email" do
+    test_pid = self()
+
+    Req.Test.stub(CompanyContactFinder.Search.Serper, fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      query = Jason.decode!(body)["q"]
+      send(test_pid, {:serper_request, query})
+
+      response =
+        if String.contains?(query, "contact email") do
+          %{
+            "organic" => [
+              %{
+                "title" => "Acme press contact",
+                "link" => "https://acmelogistics.co.ke/press-contact"
+              }
+            ]
+          }
+        else
+          serper_body()
+        end
+
+      Req.Test.json(conn, response)
+    end)
+
+    stub_site(%{
+      "/robots.txt" => {:text, "User-agent: *\n"},
+      "/" => "<html><body><h1>Acme</h1><p>We move freight.</p></body></html>",
+      "/press-contact" =>
+        "<html><body><a href=\"mailto:hello@acmelogistics.co.ke\">Email</a></body></html>"
+    })
+
+    stub_openai()
+    lookup = insert_lookup()
+
+    Pipeline.run(lookup.id)
+
+    lookup = Leads.get_lookup!(lookup.id)
+    assert lookup.status == :done
+    assert Enum.any?(lookup.contacts, &(&1.value == "hello@acmelogistics.co.ke"))
+    assert_receive {:serper_request, "Acme Logistics Kenya official website"}
+    assert_receive {:serper_request, "Acme Logistics contact email"}
+  end
+
   test "fails the lookup when no website is found" do
     stub_serper(%{"organic" => [%{"link" => "https://www.linkedin.com/company/acme"}]})
     lookup = insert_lookup()

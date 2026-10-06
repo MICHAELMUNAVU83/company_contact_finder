@@ -5,6 +5,7 @@ defmodule CompanyContactFinderWeb.BucketLiveTest do
   import Phoenix.LiveViewTest
   import CompanyContactFinder.LeadStubs
 
+  alias CompanyContactFinder.Clients
   alias CompanyContactFinder.Leads
   alias CompanyContactFinder.Leads.{Bucket, Lookup}
   alias CompanyContactFinder.Repo
@@ -21,7 +22,7 @@ defmodule CompanyContactFinderWeb.BucketLiveTest do
     {:ok, view, _html} = live(conn, ~p"/buckets")
     assert has_element?(view, "#buckets-empty")
 
-    {:ok, bucket} = Leads.create_bucket(bucket_attrs())
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product())
     {:ok, view, _html} = live(conn, ~p"/buckets")
     assert has_element?(view, "#buckets-#{bucket.id}", "Nairobi logistics firms")
   end
@@ -32,10 +33,7 @@ defmodule CompanyContactFinderWeb.BucketLiveTest do
     view |> form("#bucket-form", bucket: %{name: ""}) |> render_change()
     assert has_element?(view, "#bucket-form", "can't be blank")
 
-    view |> element("button[phx-value-service='GS1 standards training']") |> render_click()
-    view |> element("button[phx-value-service='SSCC logistics labels']") |> render_click()
-    view |> element("button[phx-value-service='Traceability solutions']") |> render_click()
-    view |> element("button[phx-value-service='Traceability solutions']") |> render_click()
+    product_id = bucket_with_product()["product_ids"] |> hd()
 
     view
     |> form("#bucket-form",
@@ -43,20 +41,25 @@ defmodule CompanyContactFinderWeb.BucketLiveTest do
         name: "Food makers",
         target_description: "Packaged food manufacturers",
         industries: "Food, Beverages",
-        company_sizes: ["small"]
+        company_sizes: ["small"],
+        product_ids: [product_id],
+        breadth: "wide",
+        max_companies: "10"
       }
     )
     |> render_submit()
 
-    bucket = Repo.one!(Bucket)
-    assert bucket.services == ["GS1 standards training", "SSCC logistics labels"]
+    bucket = Bucket |> Repo.one!() |> Repo.preload(:products)
+    assert Enum.map(bucket.products, & &1.name) == ["GS1 barcodes"]
+    assert bucket.breadth == "wide"
+    assert bucket.max_companies == 10
     assert bucket.industries == ["Food", "Beverages"]
     assert bucket.company_sizes == ["small"]
     assert_redirect(view, ~p"/buckets/#{bucket}")
   end
 
   test "editing a bucket", %{conn: conn} do
-    {:ok, bucket} = Leads.create_bucket(bucket_attrs())
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product())
     {:ok, view, _html} = live(conn, ~p"/buckets/#{bucket}/edit")
 
     view |> form("#bucket-form", bucket: %{name: "Renamed"}) |> render_submit()
@@ -66,7 +69,7 @@ defmodule CompanyContactFinderWeb.BucketLiveTest do
   end
 
   test "show ranks leads and adds companies", %{conn: conn} do
-    {:ok, bucket} = Leads.create_bucket(bucket_attrs())
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product())
     low = Repo.insert!(%Lookup{company_name: "Low Co", bucket_id: bucket.id, status: :done})
     high = Repo.insert!(%Lookup{company_name: "High Co", bucket_id: bucket.id, status: :done})
 
@@ -87,7 +90,7 @@ defmodule CompanyContactFinderWeb.BucketLiveTest do
     })
 
     {:ok, view, _html} = live(conn, ~p"/buckets/#{bucket}")
-    assert has_element?(view, "#bucket-criteria", "SSCC logistics labels")
+    assert render(view) =~ "GS1 barcodes"
 
     ids =
       view
@@ -108,8 +111,38 @@ defmodule CompanyContactFinderWeb.BucketLiveTest do
     assert has_element?(view, "#leads-#{added.id}")
   end
 
+  test "an upsell bucket scores uploaded clients", %{conn: conn} do
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product(%{"flow" => "upsell"}))
+
+    assert %{inserted: 1} =
+             Clients.import_csv(
+               "company,email,website\nBidii Foods,hello@bidii.co.ke,https://bidii.co.ke\n"
+             )
+
+    {:ok, view, _html} = live(conn, ~p"/buckets/#{bucket}")
+    refute has_element?(view, "#discover-companies")
+    assert has_element?(view, "#client-picker", "Bidii Foods")
+
+    stub_all()
+    [client] = Clients.list_clients()
+
+    view
+    |> form("#client-picker", pick: %{ids: [client.id]})
+    |> render_submit()
+
+    lookup = Repo.get_by!(Lookup, company_name: "Bidii Foods")
+    assert lookup.bucket_id == bucket.id
+    assert lookup.website_overridden
+    assert lookup.website_url =~ "bidii.co.ke"
+    await_done(lookup.id)
+
+    emails = for %{type: :email, value: value} <- Leads.list_contacts(lookup), do: value
+    assert "hello@bidii.co.ke" in emails
+    refute has_element?(view, "#client-picker", "Bidii Foods")
+  end
+
   test "deleting a bucket", %{conn: conn} do
-    {:ok, bucket} = Leads.create_bucket(bucket_attrs())
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product())
     {:ok, view, _html} = live(conn, ~p"/buckets/#{bucket}")
 
     view |> element("#delete-bucket") |> render_click()
@@ -120,7 +153,7 @@ defmodule CompanyContactFinderWeb.BucketLiveTest do
 
   test "moving a lookup into a bucket from its page rescores it", %{conn: conn} do
     stub_all()
-    {:ok, bucket} = Leads.create_bucket(bucket_attrs())
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product())
     lookup = Repo.insert!(%Lookup{company_name: "Acme Logistics"})
     CompanyContactFinder.Leads.Pipeline.run(lookup.id)
 
@@ -137,7 +170,7 @@ defmodule CompanyContactFinderWeb.BucketLiveTest do
 
   test "finding companies online and adding the picked ones", %{conn: conn} do
     stub_discovery()
-    {:ok, bucket} = Leads.create_bucket(bucket_attrs())
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product())
     {:ok, view, _html} = live(conn, ~p"/buckets/#{bucket}")
 
     view |> element("#discover-companies") |> render_click()
@@ -160,9 +193,47 @@ defmodule CompanyContactFinderWeb.BucketLiveTest do
     assert has_element?(view, "#discovery-form", "Chui Couriers")
   end
 
+  test "campaign preview does not send until it is fired", %{conn: conn} do
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product())
+
+    lookup =
+      Repo.insert!(%Lookup{company_name: "Acme Logistics", bucket_id: bucket.id, status: :done})
+
+    Leads.add_contacts(lookup, [
+      %{type: :email, value: "sales@acmelogistics.co.ke", source_url: "https://acme.test"}
+    ])
+
+    Leads.save_brief(lookup, %{status: :done, pitch: "Offer barcode numbers"})
+
+    {:ok, view, _html} = live(conn, ~p"/buckets/#{bucket}/campaign")
+    assert has_element?(view, "#preview-#{lookup.id}", "Acme Logistics")
+    assert has_element?(view, "#preview-#{lookup.id}", "sales@acmelogistics.co.ke")
+    assert has_element?(view, "#campaign-count", "1 ready")
+    assert has_element?(view, "#bucket_email_footer")
+    assert has_element?(view, "#footer-tokens", "{{company}}")
+    assert Repo.aggregate(CompanyContactFinder.Outreach.Message, :count) == 0
+
+    view
+    |> form("#campaign-form",
+      bucket: %{
+        from_name: "Amina",
+        from_email: "amina@gs1kenya.org",
+        email_footer: "Amina, GS1 Kenya"
+      }
+    )
+    |> render_change()
+
+    assert has_element?(view, "#preview-#{lookup.id}", "Amina, GS1 Kenya")
+
+    view |> element("#fire-campaign") |> render_click()
+    assert render(view) =~ "Campaign fired. Sent 1."
+    assert render(view) =~ "Already sent"
+    assert Repo.aggregate(CompanyContactFinder.Outreach.Message, :count) == 1
+  end
+
   test "shows why online search failed", %{conn: conn} do
     stub_serper_error(401)
-    {:ok, bucket} = Leads.create_bucket(bucket_attrs())
+    {:ok, bucket} = Leads.create_bucket(bucket_with_product())
     {:ok, view, _html} = live(conn, ~p"/buckets/#{bucket}")
 
     view |> element("#discover-companies") |> render_click()
